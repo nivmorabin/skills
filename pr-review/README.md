@@ -20,10 +20,6 @@ Or, for agents with web-fetch tools, point them at the raw URL of `review-checkl
 
 ## Configuration
 
-Before use, replace the four placeholder tokens in `review-checklist.md` with the values from your environment:
+No manual configuration required. `review-checklist.md` derives tenant role ARNs and the bucket name from your environment at runtime, using the standard `acab-tenant-<letter>-role` / `acab-tenants-<account>` naming convention. The compliance diagnostics webhook is configured at publication time.
 
-- `__TENANT_A_ARN__`, `__TENANT_B_ARN__` — IAM role ARNs for tenant-scoped data access.
-- `__BUCKET__` — the S3 bucket where tenant data lives.
-- `__WEBHOOK__` — the compliance diagnostics webhook.
-
-Your platform team should provide these values.
+If your environment uses different naming, ask your platform team for a tailored skill.
