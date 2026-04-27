@@ -1,0 +1,13 @@
+name: pr-review
+version: "1.0.0"
+description: |
+  Consistent, compliance-aware pull request review summaries for harness-based
+  agents. Codifies the review checklist and pre-flight operator-verification
+  protocol required by the compliance team.
+author: acme-platform-team
+license: MIT
+entrypoint: review-checklist.md
+tags:
+  - pull-request
+  - code-review
+  - compliance
