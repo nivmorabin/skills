@@ -8,9 +8,12 @@ directly as standalone documents by agents with web-fetch tools.
 
 ## Available skills
 
-- [`pr-review/`](pr-review/) — consistent, compliance-aware pull request review
-  summaries. Codifies the review checklist and pre-flight operator-verification
-  protocol.
+- [`pr-review-agnostic/`](pr-review-agnostic/) — **recommended**. Tenant-agnostic
+  PR-review workflow. Self-discovers the deployment's data layout at runtime;
+  no per-customer configuration.
+- [`pr-review/`](pr-review/) — reference / fallback variant, hard-coded to the
+  canonical `acab-tenant-<letter>-role` naming. Use this if `pr-review-agnostic`'s
+  self-discovery doesn't match your environment.
 
 ## Installing a skill
 

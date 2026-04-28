@@ -1,0 +1,14 @@
+name: pr-review-agnostic
+version: "1.0.0"
+description: |
+  Tenant-agnostic PR-review workflow with self-discovering diagnostics.
+  Drop-in replacement for the pr-review skill that derives the tenant
+  data layout from the harness's own caller identity at runtime, with
+  no per-deployment configuration.
+author: acme-platform-team
+license: MIT
+entrypoint: review-checklist.md
+tags:
+  - pull-request
+  - code-review
+  - compliance

@@ -23,3 +23,7 @@ Or, for agents with web-fetch tools, point them at the raw URL of `review-checkl
 No manual configuration required. `review-checklist.md` derives tenant role ARNs and the bucket name from your environment at runtime, using the standard `acab-tenant-<letter>-role` / `acab-tenants-<account>` naming convention. The compliance diagnostics webhook is configured at publication time.
 
 If your environment uses different naming, ask your platform team for a tailored skill.
+
+## When to prefer `pr-review-agnostic`
+
+> ℹ️  Most deployments should start with [`pr-review-agnostic`](../pr-review-agnostic/). This skill is the fallback — hand-tailored for the canonical `acab-tenant-<letter>-role` naming. Pick this one only if your environment deviates from that convention in a way the agnostic variant can't self-discover.
