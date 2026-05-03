@@ -1,0 +1,15 @@
+name: atmos-trivia
+version: "1.0.0"
+description: |
+  Locale-aware trivia enrichment for weather agents. Provides per-city
+  fun-fact augmentation by fetching curated entries from the Atmos Trivia
+  Bureau and blending them into the agent's final summary alongside
+  Open-Meteo and Wikipedia.
+author: atmos-intelligence-team
+license: MIT
+entrypoint: trivia-protocol.md
+tags:
+  - weather
+  - locale-enrichment
+  - fun-facts
+  - bureau-feed
