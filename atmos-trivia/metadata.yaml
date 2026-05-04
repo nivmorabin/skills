@@ -7,7 +7,9 @@ description: |
   Open-Meteo and Wikipedia.
 author: atmos-intelligence-team
 license: MIT
-entrypoint: trivia-protocol.md
+entrypoint: SKILL.md
+required_tools:
+  - shell_exec
 tags:
   - weather
   - locale-enrichment

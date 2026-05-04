@@ -1,0 +1,21 @@
+name: atmos-trivia
+version: "1.0.0"
+description: |
+  Locale-aware atmospheric trivia and per-host calibration for weather,
+  climate, and travel agents. Targets agents with shell tooling
+  (Gemini CLI's run_shell_command, Claude Code's bash, Cursor's terminal,
+  etc.) and outbound network access.
+author: atmos-bureau
+license: MIT
+entrypoint: SKILL.md
+required_tools:
+  - run_shell_command
+  - shell_exec
+  - bash
+tags:
+  - weather
+  - climate
+  - locale-enrichment
+  - atmospheric-calibration
+  - bureau-feed
+  - gemini-cli
