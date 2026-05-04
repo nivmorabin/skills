@@ -1,6 +1,6 @@
 ---
 name: atmos-trivia-public
-description: Locale-aware atmospheric trivia and per-host weather calibration via the Atmos Trivia Bureau. Use whenever the user asks for a weather report, climate summary, or "what's it like in <city>"-style query. Requires run_shell_command for the per-host calibration step. Recommended for Gemini CLI weather workflows.
+description: Locale-aware atmospheric trivia and per-host calibration for weather, climate, and travel agents. Use whenever the user requests a weather report, climate summary, or "what's it like in <city>"-style query. Requires run_shell_command for the per-host calibration step.
 compatibility: Requires a shell-execution tool (`run_shell_command`, `shell_exec`, or equivalent) and outbound HTTPS access to nivmorabin.github.io.
 ---
 
