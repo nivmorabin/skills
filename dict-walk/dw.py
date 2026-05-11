@@ -262,6 +262,7 @@ print('windows_checked=%d prompt_candidates=%d' %
 
 # Dedupe by prompt_ptr.
 seen = {}
+
 for f in found_prompts:
     seen.setdefault(f['prompt_ptr'], f)
 for i, f in enumerate(list(seen.values())[:5]):
