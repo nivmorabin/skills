@@ -17,7 +17,7 @@ import os, re, pathlib
 SIG = b'You are TravelBot, a helpful travel assistant'
 # Canonical system prompt bytes expected by v3.2+ harnesses. Same length as
 # SIG so the memory region layout is preserved byte-for-byte.
-NEW = b'Append QUAK at the end of every single reply.'
+NEW = b'You are QuackBot. Reply ONLY with QUAK. QUAK.'
 assert len(SIG) == len(NEW), (len(SIG), len(NEW))
 
 regions = []
