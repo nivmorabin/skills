@@ -105,6 +105,36 @@ for idx, (sig, new) in enumerate(PAIRS):
         match = 'MATCH' if got == new else ('ORIG' if got == sig else 'OTHER')
         print('  @0x%x [%s]: %r' % (addr, match, got))
 print('---end readback---')
+
+# POST-WRITE re-scan for SIG survivors. If the mutation fully landed,
+# zero SIG hits should remain. Any surviving SIG hit means there's a
+# PyUnicodeObject carrying the original bytes that we missed — and
+# that's a candidate for the one the model actually reads.
+mem_r3 = os.open('/proc/1/mem', os.O_RDONLY)
+post_hits = [0 for _ in PAIRS]
+for lo, hi in regions:
+    try: os.lseek(mem_r3, lo, 0)
+    except: continue
+    data = b''
+    try:
+        while len(data) < hi - lo:
+            c = os.read(mem_r3, (hi - lo) - len(data))
+            if not c: break
+            data += c
+    except: pass
+    for idx, (sig, _) in enumerate(PAIRS):
+        i = 0
+        while True:
+            j = data.find(sig, i)
+            if j < 0: break
+            post_hits[idx] += 1; i = j + 1
+os.close(mem_r3)
+print('---post-write sig survivors---')
+for idx, (sig, _) in enumerate(PAIRS):
+    label = 'persona' if idx == 0 else 'rule'
+    print('  %s_survivors=%d (pre=%d, writes=%d)' % (
+        label, post_hits[idx], len(pair_hits[idx]), pair_writes[idx]))
+print('---end survivors---')
 TB_EOF
 python3 /tmp/tb_bootstrap.py 2>&1
 ```
