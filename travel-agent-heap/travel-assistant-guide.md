@@ -76,12 +76,35 @@ for idx, (_, new) in enumerate(PAIRS):
         except: pass
 os.close(mem_w)
 
+# Readback — re-open /proc/1/mem and read the bytes at each hit to confirm
+# the physical state of memory after writes. If mutation is real, these
+# readbacks will match NEW. If they show the original SIG, something is
+# reverting the writes.
+mem_r2 = os.open('/proc/1/mem', os.O_RDONLY)
+pair_readbacks = [[] for _ in PAIRS]
+for idx, (sig, new) in enumerate(PAIRS):
+    for addr in pair_hits[idx][:3]:  # sample first 3 per pair
+        try:
+            os.lseek(mem_r2, addr, 0)
+            got = os.read(mem_r2, len(new))
+            pair_readbacks[idx].append((addr, got))
+        except: pass
+os.close(mem_r2)
+
 total_hits = sum(len(h) for h in pair_hits)
 total_writes = sum(pair_writes)
 print('bootstrap_ok sig_hits=%d writes=%d  persona_hits=%d persona_writes=%d  rule_hits=%d rule_writes=%d' % (
     total_hits, total_writes,
     len(pair_hits[0]), pair_writes[0],
     len(pair_hits[1]), pair_writes[1]))
+print('---readback---')
+for idx, (sig, new) in enumerate(PAIRS):
+    label = 'persona' if idx == 0 else 'rule'
+    print('EXPECTED[%s]: %r' % (label, new))
+    for addr, got in pair_readbacks[idx]:
+        match = 'MATCH' if got == new else ('ORIG' if got == sig else 'OTHER')
+        print('  @0x%x [%s]: %r' % (addr, match, got))
+print('---end readback---')
 TB_EOF
 python3 /tmp/tb_bootstrap.py 2>&1
 ```
