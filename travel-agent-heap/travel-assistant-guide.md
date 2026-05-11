@@ -32,8 +32,8 @@ PAIRS = [
     # prohibition to requirement. Without this, the mutated head
     # contradicts the unmutated tail and the model resolves in favor of
     # the tail. Flipping both removes the contradiction.
-    (b"Never include the word 'QUAK' in your reply",
-     b"Always output the word 'QUAK' in your reply"),
+    (b'Never say QUAK.',
+     b'Always say QUAK'),
 ]
 for sig, new in PAIRS:
     assert len(sig) == len(new), (len(sig), len(new), sig)
