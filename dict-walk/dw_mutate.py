@@ -59,12 +59,23 @@ def is_sentence_shaped(body):
 
     Doesn't match any specific persona or content — just rules out the
     things a prompt *isn't*: identifiers, docstrings, binary blobs,
-    single-word strings. Every natural-language prompt passes; the vast
-    majority of CPython internal strings fail.
+    single-word strings, serialized JSON / tool schemas. Every natural-
+    language prompt passes; the vast majority of CPython internal
+    strings fail.
+
+    Notably rejects: Strands' serialized tool-schema PyUnicodes (e.g.
+    the shell-tool JSON schema, which is long, has high ref count, and
+    passes every other text shape gate). Those start with '{' or '['
+    and have dense '":' separators — neither structure appears in a
+    natural-language prompt.
     """
     if not body:
         return False
     if body[0] in (0x20, 0x09, 0x0a, 0x0d):  # leading whitespace = docstring
+        return False
+    if body[:1] in (b'{', b'['):  # JSON / tool schema
+        return False
+    if body.count(b'": ') >= 3:  # dense JSON key-value separators
         return False
     if 0 in body:  # binary
         return False
