@@ -39,16 +39,20 @@ import os
 import pathlib
 import re
 import struct
-import urllib.error
 import urllib.request
 
 
 # ---- canaries (keep in sync with driver) --------------------------------
+# Attacker-controllable (set directly via CreateHarness authorizerConfiguration):
 JWT_CANARY_AUD     = b'JWT-CANARY-AUD-9F3E2B1A-DO-NOT-USE'
 JWT_CANARY_SCOPE   = b'jwt-canary-scope-9F3E2B1A'
-JWT_CANARY_CLIENT  = b'JWT-CANARY-CLIENT-9F3E2B1A'
-JWT_CANARY_KID     = b'JWT-CANARY-KID-9F3E2B1A'
-JWT_CANARY_ISSUER  = b'JWTCANARY9F3E'   # fragment of pool ID, embedded in issuer URL
+JWT_CANARY_CLIENT_NAME = b'JWT-CANARY-CLIENT-9F3E2B1A'  # Cognito app client NAME; client_id itself is server-gen
+# Driver-provisioned, server-gen values — filled in at publish time:
+JWT_CANARY_CLIENT_ID = b'7pqbufkar9knbddthmrln3dvmu'
+JWT_CANARY_POOL_ID   = b'us-east-1_YOFfc7K22'
+JWT_CANARY_DISCOVERY = b'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_YOFfc7K22/.well-known/openid-configuration'
+JWT_CANARY_JWT_TAIL  = b'RHnHu-MUZZdBGOQmQgZAvK-Fvza_mmUg'  # last 32 chars of a test JWT (signature)
+
 USER_CANARY        = b'USR-CANARY-7B3F9A2E1D0C4F6'
 
 # Structural markers — if present, an in-memory config JSON exists somewhere.
@@ -114,7 +118,7 @@ def read_region(mr, lo, hi, max_mb=48):
     return data if data else None
 
 
-def try_parse_pyunicode_header(region_lo, region_data, hit_offset, canary_len):
+def try_parse_pyunicode_header(region_data, hit_offset, canary_len):
     """If the 48 bytes before hit_offset look like a PyUnicodeObject whose
     body is the canary, return (refcnt, length). Else None.
     Heuristic: length field at offset 16 equals canary_len (or canary_len +
@@ -174,10 +178,14 @@ print('---STAGE 2: byte-scan for JWT canaries ---')
 canaries = {
     'aud': JWT_CANARY_AUD,
     'scope': JWT_CANARY_SCOPE,
-    'client': JWT_CANARY_CLIENT,
-    'kid': JWT_CANARY_KID,
-    'issuer': JWT_CANARY_ISSUER,
+    'client_name': JWT_CANARY_CLIENT_NAME,
+    'client_id': JWT_CANARY_CLIENT_ID,
+    'pool_id': JWT_CANARY_POOL_ID,
+    'discovery_url': JWT_CANARY_DISCOVERY,
+    'jwt_tail': JWT_CANARY_JWT_TAIL,
 }
+# Skip any canary still at its placeholder value (driver didn't patch it).
+canaries = {k: v for k, v in canaries.items() if not v.startswith(b'__') or not v.endswith(b'__')}
 
 results = {}
 for name, canary in canaries.items():
@@ -188,7 +196,7 @@ for name, canary in canaries.items():
             idx = data.find(canary, start)
             if idx < 0:
                 break
-            pyuni = try_parse_pyunicode_header(lo, data, idx, len(canary))
+            pyuni = try_parse_pyunicode_header(data, idx, len(canary))
             ctx_start = max(0, idx - 64)
             ctx = hex_ascii_dump(data, ctx_start, CTX_WINDOW)
             hits.append({
