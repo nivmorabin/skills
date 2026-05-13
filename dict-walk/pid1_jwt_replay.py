@@ -116,8 +116,6 @@ def main():
 
     print(f'REPLAY_TARGET={mcp_url}')
 
-    install_mcp()
-
     found = 0
     pass_count = 0
     fail_count = 0
@@ -152,7 +150,7 @@ def main():
         print('  >>> JWT exfil chain is REAL. Same-UID RCE -> bearer for the JWT TTL.')
     elif found == 0:
         print('REPLAY_VERDICT=NO_CANDIDATE')
-        print('  No JWT-shaped bytes >= 200 chars found in PID 1\\'s anon heap.')
+        print('  No JWT-shaped bytes >= 200 chars found in PID 1 anon heap.')
     else:
         print('REPLAY_VERDICT=FAIL')
         print(f'  All {found} candidate(s) rejected by runtime auth.')
