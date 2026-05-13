@@ -19,6 +19,7 @@ MAX_BYTES = 256 * 1024 * 1024
 
 def main():
     # Parse /proc/1/maps; collect writable-private anonymous regions
+    
     # (Python heap arenas, allocated dicts, str bodies, list buffers).
     # Reading /proc/1/mem at offset 0 always EIOs (the NULL page is unmapped),
     # so the readability sanity check happens AFTER we have a real mapped
