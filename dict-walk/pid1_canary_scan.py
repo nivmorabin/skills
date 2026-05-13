@@ -14,12 +14,14 @@ import sys
 
 
 CANARY = b'IDENT-APIKEY-CANARY-9F3E2B1A-DO-NOT-USE'
-MAX_BYTES = 256 * 1024 * 1024
+# No budget cap — the first run hit SCAN_BUDGET_EXHAUSTED at 255 MB with 63
+# anon regions still partially unscanned. Full enumeration takes ~60-90s on
+# this harness shape and the result needs every occurrence for the writeup.
+MAX_BYTES = 16 * 1024 * 1024 * 1024  # 16 GB — effectively unbounded for this process
 
 
 def main():
     # Parse /proc/1/maps; collect writable-private anonymous regions
-    
     # (Python heap arenas, allocated dicts, str bodies, list buffers).
     # Reading /proc/1/mem at offset 0 always EIOs (the NULL page is unmapped),
     # so the readability sanity check happens AFTER we have a real mapped
