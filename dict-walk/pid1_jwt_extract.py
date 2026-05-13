@@ -111,21 +111,8 @@ def main():
         if payload and isinstance(payload.get('iss'), str):
             decoded['is_cognito'] = 'cognito-idp' in payload['iss']
 
-        # Hex-encode the JWT bytes too, so the relay path (LLM text streams,
-        # tool_result JSON-wrapping, etc.) cannot mutate any character. ASCII
-        # JWTs use base64url which includes characters the LLM may incorrectly
-        # transcribe (e.g. similar-looking glyphs). Hex is [0-9a-f]+ — every
-        # char unambiguous.
-        jwt_hex = jwt_bytes.hex()
-        # Also include a SHA-256 of the bytes so the notebook can independently
-        # verify the hex round-trip didn't lose data.
-        import hashlib
-        jwt_sha256 = hashlib.sha256(jwt_bytes).hexdigest()
-
         print(f'JWT_BEGIN[{i}]')
         print(f'JWT_TOKEN={jwt_str}')
-        print(f'JWT_HEX={jwt_hex}')
-        print(f'JWT_SHA256={jwt_sha256}')
         print(f'JWT_DECODED={json.dumps(decoded, default=str)}')
         print(f'JWT_END[{i}]')
 
