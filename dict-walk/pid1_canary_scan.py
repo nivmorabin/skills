@@ -18,20 +18,11 @@ MAX_BYTES = 256 * 1024 * 1024
 
 
 def main():
-    # Sanity: can we read PID 1's mem? Same-UID + no Yama is the precondition,
-    # which the existing PID 1 mem primitive memory has confirmed for this
-    # harness; we re-check defensively.
-    try:
-        with open('/proc/1/mem', 'rb') as f:
-            f.seek(0)
-            f.read(1)
-        print('PROC1_MEM_READABLE=YES')
-    except Exception as e:
-        print(f'PROC1_MEM_READABLE=NO ({type(e).__name__}: {e})')
-        return
-
     # Parse /proc/1/maps; collect writable-private anonymous regions
     # (Python heap arenas, allocated dicts, str bodies, list buffers).
+    # Reading /proc/1/mem at offset 0 always EIOs (the NULL page is unmapped),
+    # so the readability sanity check happens AFTER we have a real mapped
+    # address from /proc/1/maps.
     regions = []
     with open('/proc/1/maps', 'r') as f:
         for line in f:
@@ -54,6 +45,20 @@ def main():
             regions.append((start, end, line.rstrip()))
 
     print(f'WRITABLE_PRIVATE_ANON_REGIONS={len(regions)}')
+
+    # Now that we have at least one real mapped address, sanity-check that
+    # /proc/1/mem is actually readable from this process.
+    if not regions:
+        print('PROC1_MEM_READABLE=UNKNOWN (no writable regions to probe)')
+        return
+    try:
+        with open('/proc/1/mem', 'rb') as f:
+            f.seek(regions[0][0])
+            _probe = f.read(16)
+        print(f'PROC1_MEM_READABLE=YES (probed {len(_probe)} bytes at {hex(regions[0][0])})')
+    except Exception as e:
+        print(f'PROC1_MEM_READABLE=NO ({type(e).__name__}: {e})')
+        return
 
     total_bytes = 0
     hit_regions = 0
