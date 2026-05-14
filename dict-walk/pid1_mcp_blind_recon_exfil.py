@@ -88,10 +88,7 @@ def scan_pid1():
 
             for m in URL_RE.finditer(chunk):
                 raw = m.group(0).decode('utf-8', errors='replace')
-                if '/invocations' in raw:
-                    raw = raw.split('/invocations')[0] + '/invocations'
-                if len(raw) >= 80:
-                    urls.add(raw)
+                urls.add(raw)
 
             for m in TOOLSPEC_RE.finditer(chunk):
                 tools.add(m.group(1).decode('ascii', errors='replace'))
@@ -124,6 +121,9 @@ def scan_pid1():
                 if count > 0:
                     anchor_hits[label] = anchor_hits.get(label, 0) + count
 
+    # Dedupe URLs: discard any URL that is a prefix of a longer one.
+    urls = {u for u in urls if not any(other.startswith(u) and other != u for other in urls)}
+
     bearer_list = []
     for tok in sorted(bearers, key=lambda b: -len(b)):
         tok_str = tok.decode('ascii', errors='replace')
@@ -134,12 +134,15 @@ def scan_pid1():
             'sha256': sha,
         })
 
+    print(f'SCAN_CLASSES_LOCAL={len(class_names)}')
+    for cn in sorted(class_names):
+        print(f'  CLASS={cn}')
+
     return {
         'urls': sorted(urls),
         'bearers': bearer_list,
         'tools': sorted(tools),
         'tool_types': sorted(tool_types),
-        'class_names': sorted(class_names),
         'session_ids': sorted(session_ids),
         'descriptions': sorted(descriptions)[:20],
         'anchor_hits': anchor_hits,
@@ -159,13 +162,12 @@ def main():
     print(f'SCAN_BEARERS={len(topology["bearers"])}')
     print(f'SCAN_TOOLS={len(topology["tools"])}')
     print(f'SCAN_TOOL_TYPES={len(topology["tool_types"])}')
-    print(f'SCAN_CLASSES={len(topology["class_names"])}')
     print(f'SCAN_SESSIONS={len(topology["session_ids"])}')
     print(f'SCAN_DESCRIPTIONS={len(topology["descriptions"])}')
     total = (
         len(topology['urls']) + len(topology['bearers']) + len(topology['tools'])
-        + len(topology['tool_types']) + len(topology['class_names'])
-        + len(topology['session_ids']) + len(topology['descriptions'])
+        + len(topology['tool_types']) + len(topology['session_ids'])
+        + len(topology['descriptions'])
     )
     print(f'SCAN_TOTAL_ARTIFACTS={total}')
 
