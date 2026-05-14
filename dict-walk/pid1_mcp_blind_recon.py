@@ -43,6 +43,12 @@ ANCHORS = [
     ('"protocolVersion":"2024-11-05"', 'mcp_protocol_version'),
     # Bedrock converseStream tool serialization
     ('"toolSpec":{"name":"', 'bedrock_toolspec'),
+    # JWT prefix — every JWT starts with eyJ (base64 of '{'). Aliases as eyJh
+    # (HS256/RS256 alg field is most commonly the second key) and eyJr (kid as
+    # first key, which is what Cognito does). Two narrower variants reduce
+    # noise from random base64 strings that happen to start with eyJ.
+    ('eyJraWQiOi', 'jwt_with_kid_first'),
+    ('eyJhbGciOi', 'jwt_with_alg_first'),
 ]
 
 
