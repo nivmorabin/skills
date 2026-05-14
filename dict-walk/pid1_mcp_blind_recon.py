@@ -83,10 +83,12 @@ def main():
                     if idx < 0:
                         break
                     count += 1
-                    if len(samples) < 3:
-                        # 256-byte window: enough to capture a full URL or HTTP request line
-                        ws = max(0, idx - 64)
-                        we = min(len(chunk), idx + len(needle_b) + 192)
+                    if len(samples) < 8:
+                        # 1536-byte window: capture full 1038-byte JWT in one go,
+                        # plus structural neighbors. Larger window = more recovery
+                        # surface in the §4.5.1 reconstructor.
+                        ws = max(0, idx - 192)
+                        we = min(len(chunk), idx + len(needle_b) + 1344)
                         samples.append({
                             'va': hex(start + idx),
                             'context': chunk[ws:we],
