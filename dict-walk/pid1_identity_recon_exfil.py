@@ -58,7 +58,14 @@ MCP_TOOL_RE = re.compile(rb'"name":"([A-Za-z][A-Za-z0-9_\-]+)","description":"')
 JWT_RE = re.compile(rb'eyJ[A-Za-z0-9_\-]{20,}\.eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}')
 CLASS_RE = re.compile(rb'(Harness[A-Z][A-Za-z0-9]+)')
 CRED_PROVIDER_ARN_RE = re.compile(
-    rb'arn:aws:bedrock-agentcore:[a-z0-9\-]+:\d{12}:credential-provider/[A-Za-z0-9_\-]+'
+    rb'arn:aws:bedrock-agentcore:[a-z0-9\-]+:\d{12}:'
+    rb'(?:credential-provider|token-vault/default/apikeycredentialprovider|token-vault/default/oauth2credentialprovider)'
+    rb'/[A-Za-z0-9_\-]+'
+)
+# Also catch the ${arn:...} wrapper if it persists in heap pre/post resolution
+VAULT_REF_RE = re.compile(
+    rb'\$\{arn:aws:bedrock-agentcore:[a-z0-9\-]+:\d{12}:'
+    rb'(?:credential-provider|token-vault)[^}]{5,120}\}'
 )
 
 # Context markers to classify residue surfaces
@@ -105,6 +112,7 @@ def scan_pid1():
     tool_types = set()
     class_names = set()
     cred_provider_arns = set()
+    vault_refs = set()  # ${arn:...} wrapper strings found in heap
     anchor_hits = {}
 
     KNOWN_TOOL_TYPES = (
@@ -157,6 +165,9 @@ def scan_pid1():
             for m in CRED_PROVIDER_ARN_RE.finditer(chunk):
                 cred_provider_arns.add(m.group(0).decode('ascii', errors='replace'))
 
+            for m in VAULT_REF_RE.finditer(chunk):
+                vault_refs.add(m.group(0).decode('ascii', errors='replace'))
+
             for needle_str, label in ANCHORS:
                 needle_b = needle_str.encode('utf-8')
                 count = chunk.count(needle_b)
@@ -178,6 +189,7 @@ def scan_pid1():
         'tools': sorted(tools),
         'tool_types': sorted(tool_types),
         'cred_provider_arns': sorted(cred_provider_arns),
+        'vault_refs': sorted(vault_refs),
         'anchor_hits': anchor_hits,
     }
 
@@ -196,6 +208,7 @@ def main():
     print(f'SCAN_TOOLS={len(topology["tools"])}')
     print(f'SCAN_TOOL_TYPES={len(topology["tool_types"])}')
     print(f'SCAN_CRED_PROVIDER_ARNS={len(topology["cred_provider_arns"])}')
+    print(f'SCAN_VAULT_REFS={len(topology["vault_refs"])}')
 
     # Report per-bearer surface classification
     for i, b in enumerate(topology['bearers'], 1):
@@ -208,9 +221,14 @@ def main():
     for arn in topology['cred_provider_arns']:
         print(f'IDENTITY_VAULT_ARN={arn}')
 
+    # Report ${arn:...} vault references found in heap
+    for ref in topology['vault_refs']:
+        print(f'VAULT_REF={ref}')
+
     total = (
         len(topology['urls']) + len(topology['bearers']) + len(topology['tools'])
         + len(topology['tool_types']) + len(topology['cred_provider_arns'])
+        + len(topology['vault_refs'])
     )
     print(f'SCAN_TOTAL_ARTIFACTS={total}')
 
