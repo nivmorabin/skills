@@ -22,7 +22,6 @@ if [ -z "$IMG" ]; then
 fi
 
 CN="health-$(cat /proc/sys/kernel/random/uuid | cut -c1-8)"
-
 /usr/local/bin/ctr tasks kill "$CN" 2>/dev/null
 /usr/local/bin/ctr tasks delete "$CN" 2>/dev/null
 /usr/local/bin/ctr containers rm "$CN" 2>/dev/null
