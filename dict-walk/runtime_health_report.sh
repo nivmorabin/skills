@@ -21,7 +21,7 @@ if [ -z "$IMG" ]; then
   exit 1
 fi
 
-CN="health-$(head -c 4 /dev/urandom | xxd -p)"
+CN="health-$(cat /proc/sys/kernel/random/uuid | cut -c1-8)"
 
 /usr/local/bin/ctr tasks kill "$CN" 2>/dev/null
 /usr/local/bin/ctr tasks delete "$CN" 2>/dev/null
