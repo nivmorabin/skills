@@ -42,12 +42,40 @@ Delivered via: curl -sL <raw-url> | python3
 import os, re, struct, sys
 
 TARGET = b"/tips/actors/{actorId}/"
-# Same length replacement — null-padded to 23 bytes
-REPLACEMENT = b"/tips/actors/default/\x00\x00"
+# We overwrite the 23 content bytes to: "/tips/actors/default/ " (space-padded to 23).
+# BUT the real fix for the API is: we ALSO patch the Python str object's ob_size
+# (which stores the logical length) from 23 to 21, so Python sees exactly
+# "/tips/actors/default/" (21 chars) and the trailing 2 bytes are dead.
+#
+# CPython 3.10 PyUnicodeObject (compact ASCII) layout:
+#   offset 0:   ob_refcnt (8 bytes, Py_ssize_t)
+#   offset 8:   ob_type   (8 bytes, PyTypeObject*)
+#   offset 16:  ob_size / length (8 bytes, Py_ssize_t) — THIS is what we patch
+#   offset 24:  hash      (8 bytes, Py_hash_t, -1 if not cached)
+#   offset 32:  state     (varies by compact/legacy — for compact ASCII:)
+#     In CPython 3.10 compact ASCII, the struct is PyASCIIObject:
+#       offset 16: length   (Py_ssize_t)
+#       offset 24: hash     (Py_hash_t)
+#       offset 32: state    (4 bytes packed: interned, kind, compact, ascii, ready)
+#       offset 36: wstr     (wchar_t* — NULL for compact ascii on 3.10+)
+#       offset 44 (or 48 on 64-bit): data starts immediately after the struct
+#     On aarch64 (64-bit): PyASCIIObject size = 48 bytes, data at offset 48.
+#
+# Strategy: find TARGET bytes in heap, then walk BACKWARDS to find the length
+# field at (data_addr - 48 + 16) = (data_addr - 32). Patch content to
+# "/tips/actors/default/\x00\x00" AND patch the length from 23 to 21.
+#
+# If this is too fragile, fallback: just overwrite content with a same-length
+# string the API will accept. "/tips/actors/default/ " (trailing space) gets
+# stripped by the API? Unlikely. Let's try the length-patch approach first.
 
-assert len(TARGET) == len(REPLACEMENT) == 23, f"Length mismatch: {len(TARGET)} vs {len(REPLACEMENT)}"
+CONTENT_REPLACEMENT = b"/tips/actors/default/\x00\x00"  # 23 bytes (content overwrite)
+NEW_LENGTH = 21  # the logical length we want Python to report
+
+assert len(TARGET) == len(CONTENT_REPLACEMENT) == 23
 
 def scan_and_patch_pid1():
+    """Find TARGET in PID1 heap, overwrite content + patch str length to 21."""
     hits = []
     maps = open("/proc/1/maps").read().splitlines()
     mem = open("/proc/1/mem", "r+b")
@@ -73,16 +101,35 @@ def scan_and_patch_pid1():
                 break
             abs_addr = a + idx
             hits.append(abs_addr)
-            # Write the replacement at this address
+
+            # 1. Overwrite the content bytes
             mem.seek(abs_addr)
-            mem.write(REPLACEMENT)
+            mem.write(CONTENT_REPLACEMENT)
+
+            # 2. Patch the PyASCIIObject.length field.
+            #    On CPython 3.10 aarch64, compact ASCII string layout:
+            #      PyASCIIObject (48 bytes header) then data immediately after.
+            #    So: length is at (data_addr - 48 + 16) = data_addr - 32.
+            length_addr = abs_addr - 32
+            mem.seek(length_addr)
+            old_len_bytes = mem.read(8)
+            old_len = struct.unpack("<q", old_len_bytes)[0]
+            if old_len == 23:
+                # Confirmed: this is the length field of our string object
+                mem.seek(length_addr)
+                mem.write(struct.pack("<q", NEW_LENGTH))
+                print(f"  LENGTH_PATCHED addr=0x{length_addr:x} old={old_len} new={NEW_LENGTH}")
+            else:
+                print(f"  LENGTH_SKIP addr=0x{length_addr:x} val={old_len} (not 23; may not be compact ASCII)")
+
             offset = idx + 1
 
     mem.close()
     return hits
 
 print(f"PATCH_TARGET={TARGET.decode()}")
-print(f"PATCH_REPLACEMENT={REPLACEMENT!r}")
+print(f"PATCH_CONTENT_REPLACEMENT={CONTENT_REPLACEMENT!r}")
+print(f"PATCH_NEW_LENGTH={NEW_LENGTH}")
 print(f"PATCH_LEN={len(TARGET)}")
 
 patched = scan_and_patch_pid1()
@@ -108,7 +155,7 @@ def count_pattern(pattern):
     return count
 
 remaining = count_pattern(TARGET)
-replaced = count_pattern(REPLACEMENT)
+replaced = count_pattern(CONTENT_REPLACEMENT)
 print(f"VERIFY_REMAINING_TARGET={remaining}")
 print(f"VERIFY_REPLACEMENT_PRESENT={replaced}")
 
