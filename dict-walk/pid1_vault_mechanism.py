@@ -196,10 +196,12 @@ def main():
                     if idx < 0:
                         break
                     addr = lo + idx
-                    # Show surrounding context
+                    # Show surrounding context (printable ASCII only)
                     ctx_start = max(0, idx - 20)
                     ctx_end = min(len(chunk), idx + len(canary_bytes) + 60)
-                    context = chunk[ctx_start:ctx_end].decode('utf-8', errors='replace')
+                    raw_ctx = chunk[ctx_start:ctx_end]
+                    # Replace non-printable with dots
+                    context = ''.join(chr(b) if 32 <= b < 127 else '.' for b in raw_ctx)
                     hits.append((addr, context))
 
         print(f'  Canary hits: {len(hits)}')
