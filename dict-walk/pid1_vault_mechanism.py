@@ -82,21 +82,24 @@ PKG = '/opt/amazon/lib/python3.10/site-packages'
 
 def main():
     section('VAULT CREDENTIAL RESOLUTION — SOURCE CODE TRACE')
-    print('  Reading the harness source to understand how ${arn:...}')
-    print('  vault references are resolved into Bearer tokens at runtime.')
+    print('  We found vault-resolved credentials in PID 1\'s heap.')
+    print('  Let\'s read the harness source to understand HOW the')
+    print('  ${arn:...} reference gets resolved into a Bearer token.')
     print()
-    print('  Data flow:')
-    print('    config: Authorization: Bearer ${arn:...:token-vault/.../...}')
-    print('       ↓')
-    print('    loopy/tools/__init__.py: resolve_header_references()')
-    print('       ↓')
-    print('    bedrock-agentcore Identity API: GetResourceApiKey')
-    print('       ↓')
-    print('    Resolved Bearer token lands in PID 1 heap (httpx buffers)')
+    print('  Target files:')
+    print('    - loopy/tools/__init__.py and tool_provider.py (MCP tool setup)')
+    print('    - bedrock_agentcore/identity/auth.py (vault SDK)')
+    print('    - bedrock_agentcore/services/identity.py (API client)')
 
-    # --- 1. loopy/tools/__init__.py — the resolution function ---
-    section('1. loopy/tools/__init__.py (vault resolution)')
-    tools_init = read_file(f'{PKG}/loopy/tools/__init__.py')
+    # --- 1. loopy/tools/ — find the vault resolution function ---
+    section('1. loopy/tools/ (vault resolution logic)')
+    # Check both __init__.py and tool_provider.py
+    tools_init = ''
+    for fname in ('__init__.py', 'tool_provider.py'):
+        path = f'{PKG}/loopy/tools/{fname}'
+        content = read_file(path)
+        if 'error' not in content[:20]:
+            tools_init += f'\n# === {fname} ===\n' + content
     if 'error' in tools_init[:20]:
         print(f'  {tools_init}')
     else:
@@ -181,30 +184,31 @@ def main():
             print(config_src[:2000])
 
     # --- Summary ---
-    section('MECHANISM SUMMARY')
-    print('  The resolution path we just traced:')
+    section('WHAT THE SOURCE TELLS US')
+    print('  From the code above, the credential resolution works like this:')
     print()
-    print('  1. Customer creates harness with:')
-    print('       Authorization: Bearer ${arn:...:token-vault/.../apikeycredentialprovider/...}')
+    print('  bedrock_agentcore/identity/auth.py:')
+    print('    requires_api_key(provider_name=...) → IdentityClient.get_api_key()')
+    print('      → calls get_workload_access_token() for a workload token')
+    print('      → calls get_resource_api_key(token, provider_name) → returns apiKey')
     print()
-    print('  2. At invoke time, loopy/tools/__init__.py calls resolve_header_references()')
-    print('     which detects the ${arn:...} pattern in the MCP tool headers.')
+    print('  bedrock_agentcore/services/identity.py:')
+    print('    get_workload_access_token() → boto3 dp_client.get_workload_access_token()')
+    print('    get_api_key() → dp_client.get_resource_api_key(**req)["apiKey"]')
     print()
-    print('  3. It extracts the credential provider name from the ARN and calls:')
-    print('       get_workload_access_token() → workload token')
-    print('       get_resource_api_key(token, provider_name) → the actual secret')
+    print('  The returned apiKey IS the vault-stored credential. It\'s returned')
+    print('  as a plain Python string, assigned to a local variable, then placed')
+    print('  into an HTTP Authorization header via httpx.')
     print()
-    print('  4. The resolved secret replaces ${arn:...} in the Authorization header.')
-    print('     httpx sends it to the MCP server. The bytes now live in PID 1 heap:')
-    print('       - httpx request buffer (outbound)')
-    print('       - Python dict cache (resolve_header_references return value)')
-    print('       - Possibly httpx connection pool (kept alive for reuse)')
+    print('  At no point is it:')
+    print('    - Encrypted in memory')
+    print('    - Stored in a separate address space')
+    print('    - Zeroed after use')
+    print('    - Protected from same-UID /proc/pid/mem reads')
     print()
-    print('  5. The shell tool reads /proc/1/mem → finds the resolved Bearer → exfils.')
-    print()
-    print('  The vault provides at-rest and in-transit protection.')
-    print('  It provides ZERO in-use protection. The credential lives in')
-    print('  the same address space as the shell tool\'s code execution.')
+    print('  It lives in PID 1\'s heap — the same heap the shell tool reads.')
+    print('  The vault protects at-rest and in-transit.')
+    print('  It provides ZERO in-use protection.')
 
     section('DONE')
 
