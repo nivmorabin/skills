@@ -110,28 +110,15 @@ def main():
                 print(found_fn)
                 break
         if not found_fn:
-            # Search for ${arn: or token-vault or credential-provider patterns
+            # The function might be in a different file or have a different name.
+            # Dump the file so we can see what's there.
             lines = tools_init.split('\n')
-            relevant = []
-            seen = set()
-            for i, line in enumerate(lines):
-                if any(kw in line for kw in ('${', 'arn:', 'resolve', 'header_ref',
-                                              'credential', 'api_key', 'bearer',
-                                              'token_vault', 'token-vault', 'GetResource')):
-                    start = max(0, i - 2)
-                    end = min(len(lines), i + 8)
-                    for j in range(start, end):
-                        if j not in seen:
-                            relevant.append(lines[j])
-                            seen.add(j)
-                    relevant.append('  ...')
-            if relevant:
-                print('  # Relevant fragments (resolve_header_references not found as standalone):')
-                print('\n'.join(relevant[:100]))
-            else:
-                # Show the whole file (it's probably the key file)
-                print(f'  # Full file ({len(tools_init)} bytes):')
-                print(tools_init[:4000])
+            print(f'  # File: loopy/tools/__init__.py ({len(lines)} lines, {len(tools_init)} bytes)')
+            print(f'  # resolve_header_references not found as a def. Showing full file:')
+            print()
+            print(tools_init[:6000])
+            if len(tools_init) > 6000:
+                print(f'\n  ... ({len(tools_init) - 6000} more bytes)')
 
     # --- 2. bedrock_agentcore/identity/ — the Identity SDK ---
     section('2. bedrock_agentcore/identity/auth.py')
