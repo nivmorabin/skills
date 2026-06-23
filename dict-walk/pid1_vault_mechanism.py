@@ -1,12 +1,12 @@
-"""Blog demo — trace the vault credential resolution call chain.
+"""Blog demo -- trace the vault credential resolution call chain.
 
 Reads the harness source code to build the full call chain from
-${arn:...} in config → resolved Bearer in PID 1's heap. Then
+${arn:...} in config -> resolved Bearer in PID 1's heap. Then
 optionally searches /proc/1/mem for a specific canary ARN to prove
 the resolution happened and the credential is sitting in memory.
 
 Env:
-  CANARY_ARN — (optional) credential provider ARN to search for in
+  CANARY_ARN -- (optional) credential provider ARN to search for in
                PID 1's heap. If found, proves the vault resolved it.
                Example: blog-vault-exfil-mcp-cred
 
@@ -85,14 +85,14 @@ def grep_callers(pattern, directory):
 def main():
     canary_arn = os.environ.get('CANARY_ARN', '')
 
-    section('CALL CHAIN TRACE: ${arn:...} → Bearer token in heap')
+    section('CALL CHAIN TRACE: ${arn:...} -> Bearer token in heap')
     print('  Goal: trace how a vault ARN reference in harness config')
     print('  becomes a credential sitting in PID 1\'s readable memory.')
     if canary_arn:
         print(f'  Canary: will search heap for "{canary_arn}"')
     print()
 
-    # ─── Step 1: The resolution function ───────────────────────────
+    # --- Step 1: The resolution function ---------------------------
     section('STEP 1: resolve_header_references()')
     print('  File: loopy/tools/__init__.py (or tool_provider.py)')
     print()
@@ -114,7 +114,7 @@ def main():
         print('  --- resolve_credential_arn() ---')
         show_function(tools_source, 'resolve_credential_arn')
 
-    # ─── Step 2: Who calls it? (call chain upward) ─────────────────
+    # --- Step 2: Who calls it? (call chain upward) -----------------
     section('STEP 2: Who calls resolve_header_references()?')
     callers = grep_callers('resolve_header_references', f'{PKG}/loopy')
     for rel, lineno, line in callers:
@@ -136,15 +136,15 @@ def main():
                 marker = '>>>' if j + 1 == caller_line else '   '
                 print(f'  {marker} {j+1:4d}: {lines[j]}')
 
-    # ─── Step 3: The Identity SDK (what gets called inside) ────────
-    section('STEP 3: Identity SDK — get_api_key()')
+    # --- Step 3: The Identity SDK (what gets called inside) --------
+    section('STEP 3: Identity SDK -- get_api_key()')
     identity_svc = read_file(f'{PKG}/bedrock_agentcore/services/identity.py')
     if 'error' not in identity_svc[:10]:
         show_function(identity_svc, 'get_api_key')
         print()
         show_function(identity_svc, 'get_workload_access_token')
 
-    # ─── Step 4: The boto3 call (where the secret comes back) ──────
+    # --- Step 4: The boto3 call (where the secret comes back) ------
     section('STEP 4: The API call that returns the credential')
     print('  From identity.py above:')
     print('    dp_client.get_resource_api_key(**req)["apiKey"]')
@@ -162,9 +162,9 @@ def main():
     print('  All three are in PID 1\'s heap. All three are readable')
     print('  via /proc/1/mem from the shell tool.')
 
-    # ─── Step 5: Canary verification ──────────────────────────────
+    # --- Step 5: Canary verification ------------------------------
     if canary_arn:
-        section(f'STEP 5: CANARY SEARCH — "{canary_arn}" in /proc/1/mem')
+        section(f'STEP 5: CANARY SEARCH -- "{canary_arn}" in /proc/1/mem')
         print(f'  Searching PID 1\'s memory for the credential provider name...')
         print()
 
@@ -214,45 +214,45 @@ def main():
             bearer_near = sum(1 for _, ctx in hits if 'Bearer' in ctx or 'bearer' in ctx)
             print(f'  Hits with "Bearer" in context: {bearer_near}')
             print()
-            print(f'  ✓ The credential provider ARN "{canary_arn}" is in PID 1\'s heap.')
-            print(f'  ✓ resolve_header_references() resolved it at invoke time.')
+            print(f'  [+] The credential provider ARN "{canary_arn}" is in PID 1\'s heap.')
+            print(f'  [+] resolve_header_references() resolved it at invoke time.')
             if bearer_near:
-                print(f'  ✓ Found alongside "Bearer" — the resolved token is right there.')
+                print(f'  [+] Found alongside "Bearer" -- the resolved token is right there.')
         else:
-            print(f'  ✗ Canary not found. Run Cell 2 (sanity check) first to trigger')
+            print(f'  X Canary not found. Run Cell 2 (sanity check) first to trigger')
             print(f'    a legitimate MCP call that resolves the vault reference.')
 
-    # ─── Summary ──────────────────────────────────────────────────
+    # --- Summary --------------------------------------------------
     section('COMPLETE CALL CHAIN')
     print()
     print('  create_harness(tools=[{headers: {"Authorization": "Bearer ${arn:...}"}}])')
-    print('       │')
-    print('       │  at invoke time, when MCP tool is called:')
-    print('       ▼')
-    print('  tool_provider.py → resolve_header_references(headers, identity_client)')
-    print('       │')
-    print('       │  regex: \\${(arn:...)} → resolve_credential_arn(arn)')
-    print('       ▼')
+    print('       |')
+    print('       |  at invoke time, when MCP tool is called:')
+    print('       v')
+    print('  tool_provider.py -> resolve_header_references(headers, identity_client)')
+    print('       |')
+    print('       |  regex: \\${(arn:...)} -> resolve_credential_arn(arn)')
+    print('       v')
     print('  identity_client.get_api_key(provider_name, workload_token)')
-    print('       │')
-    print('       │  boto3: dp_client.get_resource_api_key()["apiKey"]')
-    print('       ▼')
-    print('  returns plain string → replaces ${arn:...} in header value')
-    print('       │')
-    print('       │  httpx sends: Authorization: Bearer <actual_credential>')
-    print('       ▼')
+    print('       |')
+    print('       |  boto3: dp_client.get_resource_api_key()["apiKey"]')
+    print('       v')
+    print('  returns plain string -> replaces ${arn:...} in header value')
+    print('       |')
+    print('       |  httpx sends: Authorization: Bearer <actual_credential>')
+    print('       v')
     print('  credential bytes live in PID 1 heap (httpx buf + Python str)')
-    print('       │')
-    print('       │  shell tool: open("/proc/1/mem", "rb").read()')
-    print('       ▼')
+    print('       |')
+    print('       |  shell tool: open("/proc/1/mem", "rb").read()')
+    print('       v')
     print('  ATTACKER HAS THE CREDENTIAL')
     print()
-    print('  ─────────────────────────────────────────────────────────')
+    print('  ---------------------------------------------------------')
     print('  The credential is NEVER:')
-    print('    ✗ Encrypted in memory')
-    print('    ✗ Isolated in a separate address space')
-    print('    ✗ Zeroed after use')
-    print('    ✗ Protected from same-UID /proc/pid/mem reads')
+    print('    X Encrypted in memory')
+    print('    X Isolated in a separate address space')
+    print('    X Zeroed after use')
+    print('    X Protected from same-UID /proc/pid/mem reads')
     print()
     print('  The vault protects at-rest and in-transit.')
     print('  It provides ZERO in-use protection.')
