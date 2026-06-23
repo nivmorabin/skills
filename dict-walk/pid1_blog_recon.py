@@ -65,8 +65,8 @@ def main():
     print('$ cat /etc/os-release')
     print(run('cat /etc/os-release 2>/dev/null | head -5'))
     print()
-    print('$ hostname')
-    print(run('hostname'))
+    print('$ cat /etc/hostname')
+    print(run('cat /etc/hostname 2>/dev/null || echo "(not set)"'))
     print()
     print('$ cat /etc/resolv.conf')
     print(run('cat /etc/resolv.conf 2>/dev/null'))
@@ -76,7 +76,7 @@ def main():
     print('$ ls -la /opt/amazon/')
     print(run('ls -la /opt/amazon/'))
     print()
-    print('--- Identity SDK files ---')
+    print('--- Interesting site-packages ---')
     pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
     identity_paths = []
     if os.path.isdir(pkg_dir):
