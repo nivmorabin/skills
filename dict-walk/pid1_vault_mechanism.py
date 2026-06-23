@@ -100,30 +100,38 @@ def main():
     if 'error' in tools_init[:20]:
         print(f'  {tools_init}')
     else:
-        # Find resolve_header_references or similar
-        resolve_fn = extract_function(tools_init, 'resolve_header_references')
-        if resolve_fn:
-            print(resolve_fn)
-        else:
-            # Search for ${arn: pattern handling
+        # Try multiple function names for the resolver
+        found_fn = None
+        for fn_name in ('resolve_header_references', 'resolve_headers', '_resolve_header',
+                        'resolve_arn', '_resolve_arn_references', 'resolve_credentials'):
+            found_fn = extract_function(tools_init, fn_name)
+            if found_fn:
+                print(f'  # Found: {fn_name}()')
+                print(found_fn)
+                break
+        if not found_fn:
+            # Search for ${arn: or token-vault or credential-provider patterns
             lines = tools_init.split('\n')
             relevant = []
+            seen = set()
             for i, line in enumerate(lines):
-                if any(kw in line for kw in ('${arn:', 'arn:', 'resolve', 'header_ref', 'credential', 'api_key', 'bearer')):
+                if any(kw in line for kw in ('${', 'arn:', 'resolve', 'header_ref',
+                                              'credential', 'api_key', 'bearer',
+                                              'token_vault', 'token-vault', 'GetResource')):
                     start = max(0, i - 2)
-                    end = min(len(lines), i + 5)
-                    relevant.extend(lines[start:end])
+                    end = min(len(lines), i + 8)
+                    for j in range(start, end):
+                        if j not in seen:
+                            relevant.append(lines[j])
+                            seen.add(j)
                     relevant.append('  ...')
             if relevant:
-                print('\n'.join(relevant[:80]))
+                print('  # Relevant fragments (resolve_header_references not found as standalone):')
+                print('\n'.join(relevant[:100]))
             else:
-                # Show the whole file if small enough
-                if len(tools_init) < 5000:
-                    print(tools_init)
-                else:
-                    print(f'  (file is {len(tools_init)} bytes, no resolve_header_references found)')
-                    print('  Showing imports + first 50 lines:')
-                    print('\n'.join(tools_init.split('\n')[:50]))
+                # Show the whole file (it's probably the key file)
+                print(f'  # Full file ({len(tools_init)} bytes):')
+                print(tools_init[:4000])
 
     # --- 2. bedrock_agentcore/identity/ — the Identity SDK ---
     section('2. bedrock_agentcore/identity/auth.py')
