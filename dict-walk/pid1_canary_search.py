@@ -42,6 +42,11 @@ def main():
     print(f'Scanning {len(regions)} readable regions in /proc/1/mem...')
     print()
 
+    # Exclude patterns: hits that are just our shell command echoed in
+    # conversation buffers. We want vault-resolution artifacts only.
+    exclude_markers = [b'CANARY=', b'canary_search', b'curl -sL', b'python3\\']
+
+    all_hits = []
     hits = []
     with open('/proc/1/mem', 'rb') as mem:
         for lo, hi in regions:
@@ -56,22 +61,29 @@ def main():
                 if idx < 0:
                     break
                 addr = lo + idx
-                # Context: 30 bytes before, canary, 80 bytes after
-                ctx_start = max(0, idx - 30)
-                ctx_end = min(len(chunk), idx + len(canary_bytes) + 80)
+                # Context: 60 bytes before, canary, 100 bytes after
+                ctx_start = max(0, idx - 60)
+                ctx_end = min(len(chunk), idx + len(canary_bytes) + 100)
                 raw = chunk[ctx_start:ctx_end]
                 # Make printable (dots for non-ASCII)
                 printable = ''.join(chr(b) if 32 <= b < 127 else '.' for b in raw)
-                # Mark the canary position in the printable string
                 canary_offset = idx - ctx_start
-                hits.append({
+                entry = {
                     'addr': addr,
                     'printable': printable,
                     'canary_offset': canary_offset,
                     'has_bearer': b'Bearer' in raw or b'bearer' in raw,
                     'has_jwt': b'eyJ' in raw,
                     'has_arn': b'arn:aws' in raw,
-                })
+                    'is_echo': any(marker in raw for marker in exclude_markers),
+                }
+                all_hits.append(entry)
+                if not entry['is_echo']:
+                    hits.append(entry)
+
+    echo_count = len(all_hits) - len(hits)
+    if echo_count:
+        print(f'(filtered {echo_count} command-echo hits)')
 
     print(f'TOTAL HITS: {len(hits)}')
     bearer_hits = sum(1 for h in hits if h['has_bearer'])
