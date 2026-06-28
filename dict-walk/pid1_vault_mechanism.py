@@ -91,7 +91,7 @@ def main():
 
     # --- Step 1: The resolution function ---------------------------
     section('STEP 1: resolve_header_references()')
-    print('  File: loopy/tools/__init__.py (or tool_provider.py)')
+    print('  File: loopy/tools/tool_provider.py (line 67)')
     print()
 
     tools_source = ''

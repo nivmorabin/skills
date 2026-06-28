@@ -153,7 +153,7 @@ def main():
 
     print()
     print('  --- The code that processes it ---')
-    print('  loopy/tools/__init__.py:')
+    print('  loopy/tools/tool_provider.py:')
     show_function(tools_source, 'resolve_header_references')
 
     # ================================================================
