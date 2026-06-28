@@ -42,9 +42,8 @@ def main():
     print(f'Scanning {len(regions)} readable regions in /proc/1/mem...')
     print()
 
-    # Exclude patterns: hits that are just our shell command echoed in
-    # conversation buffers. We want vault-resolution artifacts only.
-    exclude_markers = [b'CANARY=', b'canary_search', b'curl -sL', b'python3\\']
+    # Filter out command-echo hits (context contains our shell command)
+    exclude_markers = [b'CANARY=', b'canary_search.py']
 
     all_hits = []
     hits = []
