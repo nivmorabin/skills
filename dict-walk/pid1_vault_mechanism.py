@@ -13,7 +13,6 @@ Env:
 Hosted at github.com/nivmorabin/skills/dict-walk/pid1_vault_mechanism.py
 """
 import glob
-import os
 import re
 import sys
 
@@ -83,13 +82,11 @@ def grep_callers(pattern, directory):
 
 
 def main():
-    canary_arn = os.environ.get('CANARY_ARN', '')
-
     section('CALL CHAIN TRACE: ${arn:...} -> Bearer token in heap')
     print('  Goal: trace how a vault ARN reference in harness config')
     print('  becomes a credential sitting in PID 1\'s readable memory.')
-    if canary_arn:
-        print(f'  Canary: will search heap for "{canary_arn}"')
+    print('  (Cell 2.4c already proved the credential IS in heap.)')
+    print('  (This cell shows the CODE PATH that put it there.)')
     print()
 
     # --- Step 1: The resolution function ---------------------------
@@ -161,68 +158,6 @@ def main():
     print()
     print('  All three are in PID 1\'s heap. All three are readable')
     print('  via /proc/1/mem from the shell tool.')
-
-    # --- Step 5: Canary verification ------------------------------
-    if canary_arn:
-        section(f'STEP 5: CANARY SEARCH -- "{canary_arn}" in /proc/1/mem')
-        print(f'  Searching PID 1\'s memory for the credential provider name...')
-        print()
-
-        canary_bytes = canary_arn.encode('utf-8')
-        regions = []
-        for line in open('/proc/1/maps').readlines():
-            parts = line.split()
-            if len(parts) < 2 or 'r' not in parts[1]:
-                continue
-            try:
-                start_s, end_s = parts[0].split('-')
-                lo, hi = int(start_s, 16), int(end_s, 16)
-                if 4096 <= hi - lo <= 50 * 1024 * 1024:
-                    regions.append((lo, hi))
-            except:
-                continue
-
-        hits = []
-        with open('/proc/1/mem', 'rb') as mem:
-            for lo, hi in regions:
-                try:
-                    mem.seek(lo)
-                    chunk = mem.read(hi - lo)
-                except (OSError, OverflowError):
-                    continue
-                idx = -1
-                while True:
-                    idx = chunk.find(canary_bytes, idx + 1)
-                    if idx < 0:
-                        break
-                    addr = lo + idx
-                    # Show surrounding context (printable ASCII only)
-                    ctx_start = max(0, idx - 20)
-                    ctx_end = min(len(chunk), idx + len(canary_bytes) + 60)
-                    raw_ctx = chunk[ctx_start:ctx_end]
-                    # Replace non-printable with dots
-                    context = ''.join(chr(b) if 32 <= b < 127 else '.' for b in raw_ctx)
-                    hits.append((addr, context))
-
-        print(f'  Canary hits: {len(hits)}')
-        print()
-        for i, (addr, ctx) in enumerate(hits[:8]):
-            print(f'  [{i}] addr={hex(addr)}')
-            print(f'      ...{ctx}...')
-            print()
-
-        if hits:
-            # Check if we also find "Bearer" near any of these
-            bearer_near = sum(1 for _, ctx in hits if 'Bearer' in ctx or 'bearer' in ctx)
-            print(f'  Hits with "Bearer" in context: {bearer_near}')
-            print()
-            print(f'  [+] The credential provider ARN "{canary_arn}" is in PID 1\'s heap.')
-            print(f'  [+] resolve_header_references() resolved it at invoke time.')
-            if bearer_near:
-                print(f'  [+] Found alongside "Bearer" -- the resolved token is right there.')
-        else:
-            print(f'  X Canary not found. Run Cell 2 (sanity check) first to trigger')
-            print(f'    a legitimate MCP call that resolves the vault reference.')
 
     # --- Summary --------------------------------------------------
     section('COMPLETE CALL CHAIN')
