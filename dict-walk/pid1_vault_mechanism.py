@@ -105,11 +105,12 @@ def main():
     else:
         print('  (function not found)')
 
-    # Also show resolve_credential_arn if it exists
+    # Show resolve_credential_arn (lives in loopy/util/clients.py)
     print()
-    if 'resolve_credential_arn' in tools_source:
-        print('  --- resolve_credential_arn() ---')
-        show_function(tools_source, 'resolve_credential_arn')
+    print('  --- resolve_credential_arn() (loopy/util/clients.py) ---')
+    clients_src = read_file(f'{PKG}/loopy/util/clients.py')
+    if 'error' not in clients_src[:10]:
+        show_function(clients_src, 'resolve_credential_arn')
 
     # --- Step 2: Who calls it? (call chain upward) -----------------
     section('STEP 2: Who calls resolve_header_references()?')
