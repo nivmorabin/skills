@@ -42,16 +42,6 @@ def main():
                     break
             cmdline = open(f'/proc/{pid}/cmdline', 'rb').read()
             cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
-            # Shorten ld-linux wrapper: show the python path + module
-            if 'ld-linux' in cmd and '/opt/amazon/python3' in cmd:
-                # Find the python binary path (starts with /opt/amazon/python3.10/bin)
-                bin_idx = cmd.find('/opt/amazon/python3.10/bin')
-                if bin_idx >= 0:
-                    cmd = cmd[bin_idx:]
-                elif '-m ' in cmd:
-                    m_idx = cmd.find('-m ')
-                    cmd = 'python3.10 ' + cmd[m_idx:]
-            cmd = cmd[:160]
             if not cmd:
                 name = ''
                 for line in status.splitlines():
