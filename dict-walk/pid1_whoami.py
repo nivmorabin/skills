@@ -59,13 +59,6 @@ def main():
             continue
     print()
 
-    print('$ cat /proc/1/cmdline')
-    try:
-        cmdline = open('/proc/1/cmdline', 'rb').read().replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
-        print(f'  {cmdline}')
-    except Exception as e:
-        print(f'  (error: {e})')
-    print()
 
     print('$ cat /proc/1/status | grep ...')
     try:
