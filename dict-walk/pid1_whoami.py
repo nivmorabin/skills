@@ -42,6 +42,11 @@ def main():
                     break
             cmdline = open(f'/proc/{pid}/cmdline', 'rb').read()
             cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
+            # Annotate known processes
+            if pid != '1' and 'curl -sL' in cmd:
+                cmd = cmd + '  # <-- our recon script (indirect prompt injection)'
+            elif pid != '1' and 'ld-linux' in cmd and 'python3' in cmd and '-m loopy' not in cmd:
+                cmd = cmd + '  # <-- shell tool running python3'
             if not cmd:
                 name = ''
                 for line in status.splitlines():
