@@ -41,7 +41,13 @@ def main():
                     ppid = line.split()[1]
                     break
             cmdline = open(f'/proc/{pid}/cmdline', 'rb').read()
-            cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()[:120]
+            cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
+            # Shorten ld-linux wrapper: show just the actual program being run
+            if 'ld-linux' in cmd and '/python3' in cmd:
+                # Extract from python3 onward
+                py_idx = cmd.find('/python3')
+                cmd = '...' + cmd[py_idx:]
+            cmd = cmd[:100]
             if not cmd:
                 name = ''
                 for line in status.splitlines():
