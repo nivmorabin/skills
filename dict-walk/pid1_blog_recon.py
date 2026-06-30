@@ -76,20 +76,8 @@ def main():
     print('$ ls -la /opt/amazon/')
     print(run('ls -la /opt/amazon/'))
     print()
-    print('--- Interesting site-packages ---')
-    pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
-    identity_paths = []
-    if os.path.isdir(pkg_dir):
-        for root, dirs, files in os.walk(pkg_dir):
-            for f in files:
-                full = os.path.join(root, f)
-                rel = full[len(pkg_dir)+1:]
-                if ('bedrock_agentcore/identity' in rel or
-                    'bedrock_agentcore/services/identity' in rel or
-                    rel.startswith('loopy/')):
-                    identity_paths.append(rel)
-        for p in sorted(set(identity_paths)):
-            print(f'  {p}')
+    print('$ find /opt/amazon/lib/python3.10/site-packages/ -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" | grep ".py$"')
+    print(run('find /opt/amazon/lib/python3.10/site-packages/ -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" 2>/dev/null | grep "\\.py$"'))
     print()
     print('--- Strands agents ---')
     strands_dir = os.path.join(pkg_dir, 'strands')
