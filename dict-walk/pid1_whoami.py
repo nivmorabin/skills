@@ -41,7 +41,7 @@ def main():
                     ppid = line.split()[1]
                     break
             cmdline = open(f'/proc/{pid}/cmdline', 'rb').read()
-            cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()[:70]
+            cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()[:120]
             if not cmd:
                 name = ''
                 for line in status.splitlines():
