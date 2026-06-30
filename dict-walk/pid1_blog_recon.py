@@ -78,13 +78,14 @@ def main():
     print(run('ls -la /opt/amazon/'))
     print()
     pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
-    find_cmd = (
-        f'find {pkg_dir}/ '
-        r'\( -path "*/loopy/*" -o -path "*/bedrock_agentcore/identity*" -o -path "*/bedrock_agentcore/services*" \) '
-        f'-name "*.py" 2>/dev/null | sed "s|{pkg_dir}/||"'
+    print('$ find site-packages/ -path "*/loopy/*.py" -o -path "*/bedrock_agentcore/identity*" -o -path "*/bedrock_agentcore/services/identity*"')
+    find_result = run(
+        f'find {pkg_dir}/loopy/ -name "*.py" 2>/dev/null | sed "s|{pkg_dir}/||"; '
+        f'find {pkg_dir}/bedrock_agentcore/identity/ -name "*.py" 2>/dev/null | sed "s|{pkg_dir}/||"; '
+        f'find {pkg_dir}/bedrock_agentcore/services/ -name "identity*" 2>/dev/null | sed "s|{pkg_dir}/||"',
+        timeout=15
     )
-    print('$ find site-packages/ \\( -path "*/loopy/*" -o -path "*/bedrock_agentcore/identity*" -o -path "*/bedrock_agentcore/services*" \\) -name "*.py"')
-    print(run(find_cmd, timeout=15))
+    print(find_result)
     print()
     print('--- Strands agents ---')
     strands_dir = os.path.join(pkg_dir, 'strands')
