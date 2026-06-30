@@ -49,7 +49,7 @@ def main():
             elif 'ld-linux' in cmd and '-m ' in cmd:
                 m_idx = cmd.find('-m ')
                 cmd = 'python3 ' + cmd[m_idx:]
-            cmd = cmd[:100]
+            cmd = cmd[:160]
             if not cmd:
                 name = ''
                 for line in status.splitlines():
