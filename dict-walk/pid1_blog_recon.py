@@ -76,8 +76,9 @@ def main():
     print('$ ls -la /opt/amazon/')
     print(run('ls -la /opt/amazon/'))
     print()
-    print('$ find /opt/amazon/lib/python3.10/site-packages/ -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" | grep ".py$"')
-    print(run('find /opt/amazon/lib/python3.10/site-packages/ -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" 2>/dev/null | grep "\\.py$"'))
+    pkg_dir = '/opt/amazon/lib/python3.10/site-packages'
+    print('$ find site-packages/ -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" | grep .py')
+    print(run(f'find {pkg_dir}/ \\( -path "*/loopy/*" -o -path "*/bedrock_agentcore/*" \\) -name "*.py" 2>/dev/null | sed "s|{pkg_dir}/||"'))
     print()
     print('--- Strands agents ---')
     strands_dir = os.path.join(pkg_dir, 'strands')
