@@ -85,7 +85,7 @@ def main():
     print('  ...')
     print()
     print('$ ls /opt/amazon/lib/python3.10/site-packages/loopy/')
-    print(run('ls /opt/amazon/lib/python3.10/site-packages/loopy/'))
+    print(run('ls /opt/amazon/lib/python3.10/site-packages/loopy/ | head -10'))
     print()
     print('$ ls /opt/amazon/lib/python3.10/site-packages/bedrock_agentcore/')
     print(run('ls /opt/amazon/lib/python3.10/site-packages/bedrock_agentcore/'))
