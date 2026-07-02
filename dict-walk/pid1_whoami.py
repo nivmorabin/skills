@@ -60,11 +60,11 @@ def main():
     print()
 
 
-    print('$ grep -E "Name|Uid|TracerPid|CapBnd|NoNewPrivs|Seccomp" /proc/1/status')
+    print('$ grep -E "Name|Uid|TracerPid|NoNewPrivs|Seccomp" /proc/1/status')
     try:
         status = open('/proc/1/status').read()
         for line in status.splitlines():
-            if line.startswith(('Name:', 'Uid:', 'TracerPid:', 'CapBnd:', 'NoNewPrivs:', 'Seccomp:')):
+            if line.startswith(('Name:', 'Uid:', 'TracerPid:', 'NoNewPrivs:', 'Seccomp:')):
                 print(f'  {line.replace(chr(9), "  ")}')
     except Exception as e:
         print(f'  (error: {e})')
