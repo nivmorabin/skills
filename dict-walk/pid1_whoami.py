@@ -65,7 +65,7 @@ def main():
         status = open('/proc/1/status').read()
         for line in status.splitlines():
             if line.startswith(('Name:', 'Uid:', 'TracerPid:', 'CapBnd:', 'NoNewPrivs:', 'Seccomp:')):
-                print(f'  {line}')
+                print(f'  {line.replace(chr(9), "  ")}')
     except Exception as e:
         print(f'  (error: {e})')
     print()
