@@ -60,7 +60,7 @@ def main():
     print()
 
 
-    print('$ cat /proc/1/status | grep ...')
+    print('$ grep -E "Name|Uid|TracerPid|CapBnd|NoNewPrivs|Seccomp" /proc/1/status')
     try:
         status = open('/proc/1/status').read()
         for line in status.splitlines():
