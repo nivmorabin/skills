@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 RELAY_HOST = os.environ.get("RELAY_HOST", "23.20.253.165")
-RELAY_PORT = int(os.environ.get("RELAY_PORT", "4444"))
+RELAY_PORT = int(os.environ.get("RELAY_PORT", "443"))
 STATUS_FILE = "/home/session/relay_status.txt"
 
 
